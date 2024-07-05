@@ -1,45 +1,19 @@
-import bisect
-import os
-import json
-import flask
+from flask import Flask, render_template, redirect, url_for
+from google.appengine.api import users
 
 
-# the app object
-app = flask.Flask(__name__, static_url_path='')
+app = Flask(__name__)
 
-# setup
-path = os.path.join(os.path.split(__file__)[0], 'data/all.json')
-with open(path, "rt") as fp:
-    all_dict = json.load(fp)
-    all_sorted = sorted(all_dict.keys())
+# List of allowed users (replace with your actual user data)
+ALLOWED_USERS = {"mark.veltzer@gmail.com"}
 
-# this route is not needed in production
-@app.route('/', methods=['GET'])
+@app.route("/")
 def index():
-    return app.send_static_file("html/index.html")
+    user = users.get_current_user()
+    if user and user.email() in ALLOWED_USERS:
+        return render_template("welcome.html", username=user.nickname())
+    return redirect(users.create_login_url(url_for("index")))
 
-@app.route('/app/suggest', methods=['POST'])
-def suggest():
-    obj = flask.request.get_json()
-    p_naked = obj['Naked']
-    pos = bisect.bisect_left(all_sorted, p_naked)
-    raw_results = all_sorted[pos:pos+10]
-    obj['Nakeds'] = raw_results
-    return flask.jsonify(obj)
-
-
-@app.route('/app/naked', methods=['POST'])
-def naked():
-    jsonobject = flask.request.get_json()
-    for obj in jsonobject:
-        p_naked = obj['Naked']
-        if p_naked in all_dict:
-            results = all_dict[p_naked]
-        else:
-            results = []
-        obj['Nikudim'] = results
-    return flask.jsonify(jsonobject)
-
-
-if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=8080, debug=True)
+@app.route("/logout")
+def logout():
+    return redirect(users.create_logout_url(url_for("index")))
