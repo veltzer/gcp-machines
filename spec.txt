@@ -1,0 +1,12 @@
+I need to write a GAE application which allows a fixed set of users (and credentials) to start one machine per user
+on GCP. Each user will login, and see if his/her machine is up or down, and be able to press a button to bring his
+machine up if it is down. At the begining no machines should be up. When a machine is brought up it should stay up for
+1-3 hours according to the users choice and then turn itself off.
+
+Authentication can be done with a hardcoded list of users and passwords.
+use python and flask.
+use constants for app name, zone and client_id.
+
+Use hardcoded list of names and passwords, dont use oauth, firebase or any of that.
+
+Write two scripts: one is the web app and one is a script to create the data store behind the app from the command line.

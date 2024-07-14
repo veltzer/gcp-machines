@@ -1,4 +1,7 @@
 # THIS IS AN AUTO-GENERATED FILE. DO NOT EDIT!
 flask
+google-cloud-datastore
+bcrypt
 pymakehelper
 pydmt
+pylint

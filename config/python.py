@@ -2,6 +2,8 @@ config_requires = []
 dev_requires = []
 install_requires = [
     "flask",
+    "google-cloud-datastore",
+    "bcrypt",
 ]
 build_requires = [
     "pymakehelper",
