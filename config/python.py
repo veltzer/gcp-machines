@@ -3,6 +3,7 @@ dev_requires = []
 install_requires = [
     "flask",
     "google-cloud-datastore",
+    "google-api-python-client",
     "bcrypt",
 ]
 build_requires = [

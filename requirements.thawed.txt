@@ -1,6 +1,7 @@
 # THIS IS AN AUTO-GENERATED FILE. DO NOT EDIT!
 flask
 google-cloud-datastore
+google-api-python-client
 bcrypt
 pymakehelper
 pydmt
