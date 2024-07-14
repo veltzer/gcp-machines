@@ -1,1 +1,1 @@
-export GOOGLE_APPLICATION_CREDENTIALS="${HOME}/.credentialis/machines.json"
+export GOOGLE_APPLICATION_CREDENTIALS="${HOME}/.credentials/machines.json"
