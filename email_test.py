@@ -31,6 +31,10 @@ body = "This is a test email sent from a Python script using the Gmail API."
 message = MIMEText(body)
 message["to"] = to
 message["subject"] = subject
+service_account_email = credentials.service_account_email
+print(f"{service_account_email=}")
+message["from"] = service_account_email
+userId="me"
 
 # Encode the message as base64
 encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
@@ -42,7 +46,7 @@ create_message = {
 
 # Send the email
 try:
-    message = (service.users().messages().send(userId="me", body=create_message).execute())
+    message = (service.users().messages().send(userId=userId, body=create_message).execute())
     print(f"Message Id: {message["id"]}")
 except Exception as error:
     print(f"An error occurred: {error}")
