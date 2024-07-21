@@ -3,7 +3,8 @@
 echo "This script will delete ALL running Compute Engine instances in your project."
 read -p "Are you sure you want to proceed? (y/n): " CONFIRM
 
-if [[ "$CONFIRM" != "y" ]]; then
+if [[ "$CONFIRM" != "y" ]]
+then
   echo "Exiting script."
   exit 0
 fi
@@ -15,9 +16,10 @@ ZONES=("us-central1-c us-east1-b")
 # Delete instances in each zone
 for ZONE in $ZONES; do
     # Get all instances in the zone (filtering out already stopped instances)
-    INSTANCES=$(gcloud compute instances list --zones=$ZONE --filter="status != TERMINATED" --format="value(name)" --quiet)
+    INSTANCES=$(gcloud compute instances list --zones=$ZONE --filter="status != TERMINATED" --format="value(name)" --verbosity=error)
 
-    for INSTANCE in $INSTANCES; do
+    for INSTANCE in $INSTANCES
+    do
         echo "Deleting instance: $INSTANCE in zone: $ZONE"
         gcloud compute instances delete "$INSTANCE" --zone="$ZONE" --quiet
     done
