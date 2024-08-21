@@ -18,8 +18,6 @@ compute = discovery.build("compute", "v1", credentials=credentials)
 
 def list_instances():
     """ list all instances in all zones """
-    # Fetch the list of instances
-    # result = compute.instances().list(project=PROJECT_ID, zone=ZONE).execute()
     # pylint: disable=no-member
     request = compute.instances().aggregatedList(project=PROJECT_ID)
     all_instances = []
@@ -37,8 +35,9 @@ def list_instances():
     for instance in all_instances:
         owner_label = instance.get("labels")["owner"]
         public_ip=instance['networkInterfaces'][0]["accessConfigs"][0].get("natIP", "N/A")
+        zone_name = instance['zone'].split('/')[-1]
         print(f"Name: {instance['name']}, Status: {instance['status']}, "
-              f"Owner: {owner_label}, Public IP: {public_ip}")
+              f"Owner: {owner_label}, Public IP: {public_ip}, Zone: {zone_name}")
 
 def suspend_instance(instance_name):
     """ suspend one instance """
