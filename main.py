@@ -13,29 +13,21 @@ app = flask.Flask(__name__)
 
 
 PROJECT_ID="veltzer-machines-id"
-# ZONE="us-central1-c"
 credentials = GoogleCredentials.get_application_default()
 compute = discovery.build("compute", "v1", credentials=credentials)
 
-@app.route("/", methods=["GET"])
-def root():
-    """ root endpoint """
-    html="<html><body>"
-    # pylint: disable=no-member
-    # result = compute.instances().list(project=PROJECT_ID, zone=ZONE).execute()
-    # pylint: disable=no-member
-    result = compute.instances().aggregatedList(project=PROJECT_ID).execute()
-    instances = result["items"]
-    for instance in instances:
-        html+=f"Name: {instance['name']}, Status: {instance['status']}"
-    html+="</body></html>"
-    return html
 
-@app.route("/machines", methods=["GET"])
+def get_machine_data():
+    """ get all machine data """
+    return []
+
+
+@app.route("/", methods=["GET"])
 def machines():
     """ url to see all machines """
-    machines_data = [1, 2, 3]
+    machines_data = get_machine_data()
     return flask.render_template("machines.html", machines=machines_data)
+
 
 @app.route('/process/<int:number>')
 def process(number):
