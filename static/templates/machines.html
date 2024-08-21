@@ -4,8 +4,8 @@
     <title>Machines List</title>
 </head>
 <body>
-    {% for number in machines %}
-        <a href="{{ url_for('process', number=number) }}"><button>{{ name }}</button></a>
+    {% for machine in machines %}
+        <a href="{{ url_for('process', number=machine.number) }}"><button>{{ machine.name }}</button></a>
     {% endfor %}
 </body>
 </html>

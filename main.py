@@ -20,7 +20,7 @@ credentials = GoogleCredentials.get_application_default()
 compute = discovery.build("compute", "v1", credentials=credentials)
 
 
-def get_machine_data():
+def get_machines():
     """ list all instances in all zones """
     # pylint: disable=no-member
     request = compute.instances().aggregatedList(project=PROJECT_ID)
@@ -36,6 +36,7 @@ def get_machine_data():
         )
     # Now you have all instances in the `all_instances` list
     data = []
+    i = 0
     for instance in all_instances:
         owner= instance.get("labels")["owner"]
         ip=instance['networkInterfaces'][0]["accessConfigs"][0].get("natIP", "N/A")
@@ -46,21 +47,22 @@ def get_machine_data():
             "owner": owner,
             "ip": ip,
             "zone": zone,
+            "number": i,
         })
     return data
 
 
 @app.route("/", methods=["GET"])
-def machines():
+def root():
     """ url to see all machines """
-    machines_data = get_machine_data()
-    return flask.render_template("machines.html", machines=machines_data)
+    machines = get_machines()
+    return flask.render_template("machines.html", machiness=machines)
 
 
 @app.route('/process/<int:number>')
 def process(number):
     """ click on a machine """
-    return f"You clicked button number {number}"
+    return f"You clicked machine number {number}"
 
 
 if __name__ == "__main__":
