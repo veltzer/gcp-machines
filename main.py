@@ -13,7 +13,7 @@ app = Flask(__name__)
 
 
 PROJECT_ID="veltzer-machines-id"
-ZONE="us-central1-c"
+# ZONE="us-central1-c"
 credentials = GoogleCredentials.get_application_default()
 compute = discovery.build("compute", "v1", credentials=credentials)
 
@@ -22,7 +22,9 @@ def root():
     """ root endpoint """
     html="<html><body>"
     # pylint: disable=no-member
-    result = compute.instances().list(project=PROJECT_ID, zone=ZONE).execute()
+    # result = compute.instances().list(project=PROJECT_ID, zone=ZONE).execute()
+    # pylint: disable=no-member
+    result = compute.instances().aggregatedList(project=PROJECT_ID).execute()
     instances = result["items"]
     for instance in instances:
         html+=f"Name: {instance['name']}, Status: {instance['status']}"
