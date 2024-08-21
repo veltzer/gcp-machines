@@ -4,12 +4,12 @@
 main application
 """
 
-from flask import Flask
+import flask
 from googleapiclient import discovery
 from oauth2client.client import GoogleCredentials
 
 
-app = Flask(__name__)
+app = flask.Flask(__name__)
 
 
 PROJECT_ID="veltzer-machines-id"
@@ -30,6 +30,17 @@ def root():
         html+=f"Name: {instance['name']}, Status: {instance['status']}"
     html+="</body></html>"
     return html
+
+@app.route("/machines", methods=["GET"])
+def machines():
+    """ url to see all machines """
+    machines_data = [1, 2, 3]
+    return flask.render_template("machines.html", machines=machines_data)
+
+@app.route('/process/<int:number>')
+def process(number):
+    """ click on a machine """
+    return f"You clicked button number {number}"
 
 
 if __name__ == "__main__":
