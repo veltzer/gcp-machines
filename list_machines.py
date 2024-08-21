@@ -36,7 +36,7 @@ def list_instances():
     print("All instances:")
     for instance in all_instances:
         owner_label = instance.get("labels")["owner"]
-        public_ip=instance['networkInterfaces'][0]["accessConfigs"][0]["natIP"]
+        public_ip=instance['networkInterfaces'][0]["accessConfigs"][0].get("natIP", "N/A")
         print(f"Name: {instance['name']}, Status: {instance['status']}, "
               f"Owner: {owner_label}, Public IP: {public_ip}")
 
