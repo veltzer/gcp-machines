@@ -49,6 +49,7 @@ def get_machines():
             "zone": zone,
             "number": i,
         })
+        i = i + 1
     return data
 
 
