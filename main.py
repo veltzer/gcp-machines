@@ -61,7 +61,7 @@ def root():
 
 
 @app.route("/process")
-def process(name, zone, status):
+def process():
     """ click on a machine """
     machine = flask.request.args.to_dict()
     # pylint: disable=no-member
