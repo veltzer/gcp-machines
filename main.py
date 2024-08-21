@@ -72,7 +72,7 @@ def process():
         compute.instances().resume(project=PROJECT_ID, zone=zone, instance=name).execute()
     else:
         compute.instances().suspend(project=PROJECT_ID, zone=zone, instance=name).execute()
-    return "Machine state changed. Usually it takes 1-2 minutes to really happen."
+    return "Machine state changed. Usually it takes 1-2 minutes to really happen. <br/>If you started a machine go back and refresh until you get IP to connect to. Use the same key as before."
 
 
 if __name__ == "__main__":
