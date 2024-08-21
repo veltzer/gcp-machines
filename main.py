@@ -56,7 +56,7 @@ def get_machines():
 def root():
     """ url to see all machines """
     machines = get_machines()
-    return flask.render_template("machines.html", machiness=machines)
+    return flask.render_template("machines.html", machines=machines)
 
 
 @app.route('/process/<int:number>')
