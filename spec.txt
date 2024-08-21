@@ -1,12 +1,9 @@
-I need to write a GAE application which allows a fixed set of users (and credentials) to start one machine per user
-on GCP. Each user will login, and see if his/her machine is up or down, and be able to press a button to bring his
-machine up if it is down. At the begining no machines should be up. When a machine is brought up it should stay up for
-1-3 hours according to the users choice and then turn itself off.
+I need to write a GAE application which allows to suspend/resume all my machines in a project on GCP.
+It will show all my machines with name, labels and external ips, and the state of the machine
+Pressing the machine will change it's state from running to suspended, and from suspended to running.
+The list of machines should be taken from GCP using API.
 
-Authentication can be done with a hardcoded list of users and passwords.
-use python and flask.
+language is python with flask.
+
 use constants for app name, zone and client_id.
-
-Use hardcoded list of names and passwords, dont use oauth, firebase or any of that.
-
-Write two scripts: one is the web app and one is a script to create the data store behind the app from the command line.
+No need for any data store.

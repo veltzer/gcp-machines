@@ -1,35 +1,23 @@
+#!/usr/bin/env python
+
 """
 main application
 """
 
-from flask import Flask, redirect, url_for, request, session
-from google.oauth2 import id_token
-from google.auth.transport import requests
+from flask import Flask
 
 
 app = Flask(__name__)
-app.secret_key = "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"
-CLIENT_ID = "57950378250-95roigvlmlbj1ioknv2sge4ic5s28vlo.apps.googleusercontent.com"
 
-# List of allowed users (replace with your actual user data)
-ALLOWED_USERS = {"mark.veltzer@gmail.com"}
 
-@app.route('/login', methods=['POST'])
-def login():
-    """ login endpoint """
-    token = request.form['credential']
-    try:
-        idinfo = id_token.verify_oauth2_token(token, requests.Request(), CLIENT_ID)
-        # Process user information from idinfo (email, etc.)
-        session['user_id'] = idinfo['sub']  # Store user ID in session
-        return redirect(url_for('index'))  # Redirect to the main page
-    except ValueError:
-        # Invalid token
-        return "Invalid Token", 400
+PROJECT_ID="veltzer-machines-id"
+ZONE="us-central1-c"
 
-@app.route("/logout")
-def logout():
-    """ logout endpoint """
-    if "user_id" in session:
-        del session["user_id"]
-    return redirect(url_for("/login"))
+@app.route("/", methods=["GET"])
+def root():
+    """ root endpoint """
+    return "<html>hello</html>"
+
+
+if __name__ == "__main__":
+    app.run(host='127.0.0.1', port=8080, debug=True)
