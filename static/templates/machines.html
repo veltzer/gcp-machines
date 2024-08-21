@@ -22,12 +22,10 @@
 				<a href="{{ url_for('process', **machine) }}">
 				<button>
 					{{machine.name}} {{machine.status}}
-					{{machine.owner}} {{machine.ip}}
+					{{machine.owner}}
 					{{machine.zone}} {{machine.number}}
+					{{machine.ip}}
 				</button>
-				<textarea readonly rows="1">
-				{{machine.ip}}
-				</textarea>
 				</a>
 			{% endfor %}
 		</div>
