@@ -9,16 +9,16 @@
 			}
 
 			.button-container button {
-				margin-bottom: 5px; /* Add some space between buttons */
+				margin-bottom: 10px; /* Add some space between buttons */
 			}
 		</style>
 	</head>
 	<body>
 		<div class="button-container">
 			{% for machine in machines %}
-				<a href="{{ url_for('process', number=machine['number']) }}">
+				<a href="{{ url_for('process', **machine }}">
 				<button>
-					{{ machine.name }} {{machine.status}}
+					{{machine.name}} {{machine.status}}
 					{{machine.owner}} {{machine.ip}}
 					{{machine.zome}} {{machine.number}}
 				</button>

@@ -39,8 +39,8 @@ def get_machines():
     i = 0
     for instance in all_instances:
         owner= instance.get("labels")["owner"]
-        ip=instance['networkInterfaces'][0]["accessConfigs"][0].get("natIP", "N/A")
-        zone = instance['zone'].split('/')[-1]
+        ip=instance["networkInterfaces"][0]["accessConfigs"][0].get("natIP", "N/A")
+        zone = instance["zone"].split("/")[-1]
         data.append({
             "name": instance["name"],
             "status": instance["status"],
@@ -60,11 +60,20 @@ def root():
     return flask.render_template("machines.html", machines=machines)
 
 
-@app.route('/process/<int:number>')
-def process(number):
+@app.route("/process")
+def process(name, zone, status):
     """ click on a machine """
-    return f"You clicked machine number {number}"
+    machine = flask.request.args.to_dict()
+    # pylint: disable=no-member
+    zone = machine["zone"]
+    name = machine["name"]
+    status = machine["status"]
+    if status == "SUSPENDED":
+        compute.instances().resume(project=PROJECT_ID, zone=zone, instance=name).execute()
+    else:
+        compute.instances().suspend(project=PROJECT_ID, zone=zone, instance=name).execute()
+    return "Machine state changed. Usually it takes 1-2 minutes to really happen."
 
 
 if __name__ == "__main__":
-    app.run(host='127.0.0.1', port=8080, debug=True)
+    app.run(host="127.0.0.1", port=8080, debug=True)
