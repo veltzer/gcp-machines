@@ -5,7 +5,7 @@
 </head>
 <body>
     {% for number in machines %}
-        <a href="{{ url_for('process', number=number) }}"><button>{{ number }}</button></a>
+        <a href="{{ url_for('process', number=number) }}"><button>{{ name }}</button></a>
     {% endfor %}
 </body>
 </html>

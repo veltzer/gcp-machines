@@ -16,7 +16,7 @@ credentials = GoogleCredentials.get_application_default()
 compute = discovery.build("compute", "v1", credentials=credentials)
 
 
-def list_instances():
+def get_machine_data():
     """ list all instances in all zones """
     # pylint: disable=no-member
     request = compute.instances().aggregatedList(project=PROJECT_ID)
@@ -31,13 +31,19 @@ def list_instances():
                 previous_response=response
         )
     # Now you have all instances in the `all_instances` list
-    print("All instances:")
+    data = []
     for instance in all_instances:
-        owner_label = instance.get("labels")["owner"]
-        public_ip=instance['networkInterfaces'][0]["accessConfigs"][0].get("natIP", "N/A")
-        zone_name = instance['zone'].split('/')[-1]
-        print(f"Name: {instance['name']}, Status: {instance['status']}, "
-              f"Owner: {owner_label}, Public IP: {public_ip}, Zone: {zone_name}")
+        owner= instance.get("labels")["owner"]
+        ip=instance['networkInterfaces'][0]["accessConfigs"][0].get("natIP", "N/A")
+        zone = instance['zone'].split('/')[-1]
+        data.append({
+            "name": instance["name"],
+            "status": instance["status"],
+            "owner": owner,
+            "ip": ip,
+            "zone": zone,
+        })
+    return data
 
 def suspend_instance(instance_name):
     """ suspend one instance """
@@ -50,6 +56,5 @@ def resume_instance(instance_name):
     compute.instances().resume(project=PROJECT_ID, zone=ZONE, instance=instance_name).execute()
 
 # Example usage
-list_instances()
-# suspend_instance("your-instance-name")
-# resume_instance("your-instance-name")
+for d in get_machine_data():
+    print(d)
