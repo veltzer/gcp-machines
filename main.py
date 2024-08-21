@@ -9,7 +9,10 @@ from googleapiclient import discovery
 from oauth2client.client import GoogleCredentials
 
 
-app = flask.Flask(__name__)
+app = flask.Flask(
+        __name__,
+        template_folder="static/templates",
+)
 
 
 PROJECT_ID="veltzer-machines-id"
