@@ -7,9 +7,12 @@
 				display: flex;
 				flex-direction: column; /* Arrange buttons vertically */
 			}
-
 			.button-container button {
 				margin-bottom: 10px; /* Add some space between buttons */
+				cursor: pointer; /* Indicate clickable element */
+				font-size: 18px;  /* Increase font size */
+				padding: 10px 20px; /* Add padding for better visual appeal */
+				border-radius: 5px; /* Add rounded corners */
 			}
 		</style>
 	</head>
@@ -22,6 +25,9 @@
 					{{machine.owner}} {{machine.ip}}
 					{{machine.zone}} {{machine.number}}
 				</button>
+				<textarea readonly>
+				{{machine.ip}}
+				</textarea>
 				</a>
 			{% endfor %}
 		</div>
