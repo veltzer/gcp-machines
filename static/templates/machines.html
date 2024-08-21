@@ -16,7 +16,7 @@
 	<body>
 		<div class="button-container">
 			{% for machine in machines %}
-				<a href="{{ url_for('process', **machine }}">
+				<a href="{{ url_for('process', **machine) }}">
 				<button>
 					{{machine.name}} {{machine.status}}
 					{{machine.owner}} {{machine.ip}}
