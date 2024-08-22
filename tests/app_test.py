@@ -21,6 +21,5 @@ def test_get():
     application = webtest.TestApp(app.app)
 
     response = application.get('/')
-    print("here")
     assert response.status_int == 200
     assert response.body == 'Hello, World!'
