@@ -4,14 +4,15 @@
 main application
 """
 
+import os
 import flask
 from googleapiclient import discovery
 from oauth2client.client import GoogleCredentials
 
 
 app = flask.Flask(
-        __name__,
-        template_folder="static/templates",
+    __name__,
+    template_folder="static/templates",
 )
 
 
@@ -72,8 +73,10 @@ def process():
         compute.instances().resume(project=PROJECT_ID, zone=zone, instance=name).execute()
     else:
         compute.instances().suspend(project=PROJECT_ID, zone=zone, instance=name).execute()
-    return "Machine state changed. Usually it takes 1-2 minutes to really happen. <br/>If you started a machine go back and refresh until you get IP to connect to. Use the same key as before."
+    return "Machine state changed. Usually it takes 1-2 minutes to really happen"\
+        "<br/>If you started a machine go back and refresh until you get IP to connect to."\
+        "Use the same key as before."
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8080, debug=True)
+    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

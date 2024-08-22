@@ -6,6 +6,7 @@ install_requires = [
     "google-api-python-client",
     "oauth2client",
     "bcrypt",
+    "gunicorn",
 ]
 build_requires = [
     "pymakehelper",
