@@ -31,6 +31,9 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --member="serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
     --role="roles/iam.serviceAccountTokenCreator"
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member="serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
+    --role="roles/iam.serviceAccountUser"
 
 # Credential Download
 echo "Creating and downloading credentials..."

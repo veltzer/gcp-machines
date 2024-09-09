@@ -33,7 +33,7 @@ def create_machine(number, zone, owner, wait, ssh_key):
         "metadata": {
             "items": [{
                 "key": "ssh-keys",
-                "value": ssh_key,
+                "value": f"ubuntu:{ssh_key}",
             }]
         },
         "scheduling": {
