@@ -45,16 +45,6 @@ def get_machine_data():
         })
     return data
 
-def suspend_instance(instance_name):
-    """ suspend one instance """
-    # pylint: disable=no-member
-    compute.instances().suspend(project=PROJECT_ID, zone=ZONE, instance=instance_name).execute()
-
-def resume_instance(instance_name):
-    """ resume one instance """
-    # pylint: disable=no-member
-    compute.instances().resume(project=PROJECT_ID, zone=ZONE, instance=instance_name).execute()
-
 # Example usage
 for d in get_machine_data():
     print(d)

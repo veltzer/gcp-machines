@@ -1,9 +1,0 @@
-I need to write a GAE application which allows to suspend/resume all my machines in a project on GCP.
-It will show all my machines with name, labels and external ips, and the state of the machine
-Pressing the machine will change it's state from running to suspended, and from suspended to running.
-The list of machines should be taken from GCP using API.
-
-language is python with flask.
-
-use constants for app name, zone and client_id.
-No need for any data store.
