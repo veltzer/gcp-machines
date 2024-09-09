@@ -9,7 +9,6 @@ from oauth2client.client import GoogleCredentials
 
 # Constants
 PROJECT_ID="veltzer-machines-id"
-ZONE="us-central1-c"
 
 # Initialize the Compute Engine API client
 credentials = GoogleCredentials.get_application_default()

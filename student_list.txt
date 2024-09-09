@@ -1,0 +1,24 @@
+avi freman,us-central1-c
+avishay malka,us-central1-c
+oren korol,us-central1-c
+eilon ben david,us-central1-c
+ilan kimfeld,us-central1-c
+anton gurevish,us-central1-c
+effie saidov,us-central1-c
+etti adam,us-central1-c
+chen amos,us-central1-c
+tal kedem,us-central1-c
+israel tesler,us-central1-c
+michal gruvin,us-central1-c
+michal musaii,us-east1-b
+maayan shperling,us-east1-b
+makoreo dasa,us-east1-b
+noa dabach,us-east1-b
+semyon rotshtein,us-east1-b
+idan azulai,us-east1-b
+emanuel molknadov,us-east1-b
+kobi sleiman,us-east1-b
+constantin denisov,us-east1-b
+sarit elazari,us-east1-b
+alex golov,us-east1-b
+yossi galianz,us-east1-b
