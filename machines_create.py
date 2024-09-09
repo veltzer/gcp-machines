@@ -107,8 +107,8 @@ def main():
             line = line.rstrip()
             (owner,zone)=line.split(",")
             wait = True
-            print(number, zone, owner, wait, ssh_key)
-            # create_machine(number, zone, owner, wait)
+            print("creating", number, zone, owner)
+            create_machine(number, zone, owner, wait, ssh_key)
 
 if __name__ == "__main__":
     main()
