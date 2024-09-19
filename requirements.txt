@@ -6,8 +6,10 @@ bcrypt==4.2.0
 blinker==1.8.2
 cachetools==5.5.0
 certifi==2024.7.4
+cffi==1.17.1
 charset-normalizer==3.3.2
 click==8.1.7
+cryptography==43.0.1
 dill==0.3.8
 docutils==0.21.2
 Flask==3.0.3
@@ -42,6 +44,7 @@ proto-plus==1.24.0
 protobuf==5.27.3
 pyasn1==0.6.0
 pyasn1_modules==0.4.0
+pycparser==2.22
 pydmt==0.3.16
 pyfakeuse==0.0.8
 Pygments==2.18.0

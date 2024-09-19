@@ -5,6 +5,7 @@ google-api-python-client
 oauth2client
 bcrypt
 gunicorn
+cryptography
 pymakehelper
 pydmt
 pylint

@@ -7,6 +7,7 @@ install_requires = [
     "oauth2client",
     "bcrypt",
     "gunicorn",
+    "cryptography",
 ]
 build_requires = [
     "pymakehelper",
