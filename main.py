@@ -17,7 +17,7 @@ app = flask.Flask(
 )
 
 
-_, project_id = google.auth.default() 
+_, project_id = google.auth.default()
 credentials = GoogleCredentials.get_application_default()
 compute = discovery.build("compute", "v1", credentials=credentials)
 
