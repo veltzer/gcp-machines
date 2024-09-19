@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 from google.cloud import compute_v1
 from google.cloud import service_usage_v1
 import google.auth
@@ -7,10 +9,9 @@ def get_instance_limits_per_region(project_id: str) -> None:
     compute_client = compute_v1.RegionsClient() 
     service_usage_client = service_usage_v1.ServiceUsageClient()
 
-    for region in compute_client.list():
+    for region in compute_client.list(project=project_id):
         region_name = region.name
-        print(region_name)
-        sys.exit(1)
+        # print(region_name)
         service = 'compute.googleapis.com'
         parent = f'projects/{project_id}'
         filter_str = f'metric.name="compute.googleapis.com/cpus" AND metric.labels.region="{region_name}"'
