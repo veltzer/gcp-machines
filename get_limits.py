@@ -1,30 +1,36 @@
-#!/usr/bin/env python
-
 from google.cloud import compute_v1
 from google.cloud import service_usage_v1
 import google.auth
 
-def get_instance_limits_per_region(project_id: str) -> None:
+REGIONS=["us-central1", "us-east1"]
 
-    compute_client = compute_v1.RegionsClient() 
+def get_instance_limits_per_region():
+    _, project_id = google.auth.default()
+
+    if not project_id:
+        raise ValueError("Project ID not found. Check your GCP credentials.")
+
+    compute_client = compute_v1.RegionsClient()
     service_usage_client = service_usage_v1.ServiceUsageClient()
 
-    for region in compute_client.list(project=project_id):
-        region_name = region.name
-        # print(region_name)
-        service = 'compute.googleapis.com'
-        parent = f'projects/{project_id}'
-        filter_str = f'metric.name="compute.googleapis.com/cpus" AND metric.labels.region="{region_name}"'
+    if REGIONS:
+        regions_list = REGIONS
+    else:
+        regions_list = [x.name for x in compute_client.list(project=project_id)]
+    for region in regions_list:
+        print(region)
+        service_name = 'compute.googleapis.com'
 
-        quotas = service_usage_client.list_consumer_quota_metrics(
-            parent=parent,
-            filter=filter_str,
+        request = service_usage_v1.GetServiceRequest(
+            name=f'projects/{project_id}/services/{service_name}'
         )
+        service = service_usage_client.get_service(request=request)
 
-        for quota in quotas:
-            limit = quota.metric.consumer_quota_limits[0].value
-            print(f"Region: {region_name}, Instance Limit (CPUs): {limit}")
+        # Access quota information using service.config.quota
+        for quota in service.config.quota.metric_rules:
+            if quota.metric == 'compute.googleapis.com/cpus' and 'region' in quota.metric_costs:
+                limit = quota.metric_costs['region'][region]
+                print(f"Region: {region_name}, Instance Limit (CPUs): {limit}")
 
 if __name__ == "__main__":
-    _, project_id = google.auth.default() 
-    get_instance_limits_per_region(project_id)
+    get_instance_limits_per_region()
