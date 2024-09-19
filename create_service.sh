@@ -40,8 +40,8 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
 
 # Credential Download
 echo "Creating and downloading credentials..."
-gcloud iam service-accounts keys create credentials.json \
+file_output="${HOME}/.credentials/${PROJECT_ID}.json"
+gcloud iam service-accounts keys create "${file_output}" \
 	--iam-account="$SERVICE_ACCOUNT_EMAIL"
 
-echo "Service account created and configured successfully!"
-echo "Credentials file: credentials.json"
+echo "Created ${file_output}..."
