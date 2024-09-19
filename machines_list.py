@@ -7,10 +7,9 @@ List all machines in all zones
 from googleapiclient import discovery
 from oauth2client.client import GoogleCredentials
 
-# Constants
-PROJECT_ID="veltzer-machines-id"
 
 # Initialize the Compute Engine API client
+_, project_id = google.auth.default() 
 credentials = GoogleCredentials.get_application_default()
 compute = discovery.build("compute", "v1", credentials=credentials)
 
@@ -18,7 +17,7 @@ compute = discovery.build("compute", "v1", credentials=credentials)
 def get_machine_data():
     """ list all instances in all zones """
     # pylint: disable=no-member
-    request = compute.instances().aggregatedList(project=PROJECT_ID)
+    request = compute.instances().aggregatedList(project=project_id)
     all_instances = []
     while request is not None:
         response = request.execute()

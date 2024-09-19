@@ -1,5 +1,5 @@
 #!/bin/bash -e
-PROJECT_ID="veltzer-machines-id"
+PROJECT_ID=$(get_project_id.py)
 SERVICE_ACCOUNT_NAME="gae-machines-engine-sa"
 
 # Check if Service Account Exists

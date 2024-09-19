@@ -8,6 +8,7 @@ import os
 import flask
 from googleapiclient import discovery
 from oauth2client.client import GoogleCredentials
+import google.auth
 
 
 app = flask.Flask(
@@ -16,7 +17,7 @@ app = flask.Flask(
 )
 
 
-PROJECT_ID="veltzer-machines-id"
+_, project_id = google.auth.default() 
 credentials = GoogleCredentials.get_application_default()
 compute = discovery.build("compute", "v1", credentials=credentials)
 
@@ -24,7 +25,7 @@ compute = discovery.build("compute", "v1", credentials=credentials)
 def get_machines():
     """ list all instances in all zones """
     # pylint: disable=no-member
-    request = compute.instances().aggregatedList(project=PROJECT_ID)
+    request = compute.instances().aggregatedList(project=project_id)
     all_instances = []
     while request is not None:
         response = request.execute()
@@ -70,9 +71,9 @@ def process():
     name = machine["name"]
     status = machine["status"]
     if status == "SUSPENDED":
-        compute.instances().resume(project=PROJECT_ID, zone=zone, instance=name).execute()
+        compute.instances().resume(project=project_id, zone=zone, instance=name).execute()
     else:
-        compute.instances().suspend(project=PROJECT_ID, zone=zone, instance=name).execute()
+        compute.instances().suspend(project=project_id, zone=zone, instance=name).execute()
     return "Machine state changed. Usually it takes 1-2 minutes to really happen"\
         "<br/>If you started a machine go back and refresh until you get IP to connect to."\
         "Use the same key as before."
