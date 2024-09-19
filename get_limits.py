@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 from google.cloud import compute_v1
 from google.cloud import service_usage_v1
 import google.auth
@@ -28,6 +30,7 @@ def get_instance_limits_per_region():
 
         # Access quota information using service.config.quota
         for quota in service.config.quota.metric_rules:
+            print(quota)
             if quota.metric == 'compute.googleapis.com/cpus' and 'region' in quota.metric_costs:
                 limit = quota.metric_costs['region'][region]
                 print(f"Region: {region_name}, Instance Limit (CPUs): {limit}")
