@@ -1,1 +1,1 @@
-- get to running project.
+- create the private and public keys on the fly one per student.
