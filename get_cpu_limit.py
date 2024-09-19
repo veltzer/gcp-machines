@@ -11,7 +11,8 @@ import google.auth
 def get_cpu_quota_for_region(project_id, region):
     client = cloudquotas_v1.CloudQuotasClient()
     request = cloudquotas_v1.GetQuotaInfoRequest(
-        name= f"projects/{project_id}/locations/{region}"
+        # name= f"projects/{project_id}/locations/{region}"
+        name=f"projects/{project_id}/locations/global/services/compute.googleapis.com/quotaInfos/CPUs"
     )
     response = client.get_quota_info(request=request)
     print(response)
