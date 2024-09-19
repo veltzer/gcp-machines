@@ -10,11 +10,9 @@ from googleapiclient import discovery
 from oauth2client.client import GoogleCredentials
 
 # Set up the Compute Engine API client
+_, project_id = google.auth.defualt()
 credentials = GoogleCredentials.get_application_default()
 compute = discovery.build("compute", "v1", credentials=credentials)
-
-# Parameters
-PROJECT = "veltzer-machines-id"
 
 def create_machine(number, zone, owner, wait, ssh_key):
     """ create a single machine """
@@ -75,7 +73,7 @@ def create_machine(number, zone, owner, wait, ssh_key):
     # Create the VM instance
     # pylint: disable=no-member
     operation = compute.instances().insert(
-        project=PROJECT,
+        project=project_id,
         zone=zone,
         body=config
     ).execute()
@@ -85,7 +83,7 @@ def create_machine(number, zone, owner, wait, ssh_key):
         return
     while True:
         result = compute.zoneOperations().get(
-            project=PROJECT,
+            project=project_id,
             zone=zone,
             operation=operation["name"]
         ).execute()
