@@ -6,11 +6,12 @@ create machines on the google clouse according to the student list
 
 import time
 import os.path
+import google.auth
 from googleapiclient import discovery
 from oauth2client.client import GoogleCredentials
 
 # Set up the Compute Engine API client
-_, project_id = google.auth.defualt()
+_, project_id = google.auth.default()
 credentials = GoogleCredentials.get_application_default()
 compute = discovery.build("compute", "v1", credentials=credentials)
 

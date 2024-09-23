@@ -12,7 +12,11 @@ def list_all_regions(project_id: str) -> None:
     for region in regions:
         print(region.name)
 
-
-if __name__ == "__main__":
+def main():
+    """ main entry point """
     _, project_id = google.auth.default()
     list_all_regions(project_id)
+
+
+if __name__ == "__main__":
+    main()

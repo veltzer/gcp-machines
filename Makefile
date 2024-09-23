@@ -11,6 +11,8 @@ DO_CHECKHTML:=1
 DO_CHECKCSS:=0
 # do you want dependency on the makefile itself ?
 DO_ALLDEP:=1
+# do you want to check python code with pylint?
+DO_PYLINT:=1
 
 #########
 # tools #
@@ -35,6 +37,10 @@ CSSCHECK:=out/css.stamp
 # code #
 ########
 CLEAN:=
+ALL:=
+
+PYTHON_SRC:=$(shell find scripts -type f -and -name "*.py")
+PYTHON_LINT=$(addprefix out/, $(addsuffix .lint, $(basename $(PYTHON_SRC))))
 
 ifeq ($(DO_CHECKJS),1)
 ALL+=$(JSCHECK)
@@ -44,15 +50,18 @@ endif # DO_CHECKJS
 
 ifeq ($(DO_CHECKHTML),1)
 ALL+=$(HTMLCHECK)
-all: $(ALL)
 CLEAN+=$(HTMLCHECK)
 endif # DO_CHECKHTML
 
 ifeq ($(DO_CHECKCSS),1)
 ALL+=$(CSSCHECK)
-all: $(ALL)
 CLEAN+=$(CSSCHECK)
 endif # DO_CHECKCSS
+
+ifeq ($(DO_PYLINT),1)
+ALL+=$(PYTHON_LINT)
+CLEAN+=$(PYTHON_LINT)
+endif # DO_PYLINT
 
 # silent stuff
 ifeq ($(DO_MKDBG),1)
@@ -67,11 +76,6 @@ SOURCES_JS:=$(shell find static/js -name "*.js")
 SOURCES_HTML:=$(shell find static/html -name "*.html")
 SOURCES_CSS:=$(shell find static/css -name "*.css")
 
-# dependency on the makefile itself
-ifeq ($(DO_ALLDEP),1)
-.EXTRA_PREREQS+=$(foreach mk, ${MAKEFILE_LIST},$(abspath ${mk}))
-endif # DO_ALLDEP
-
 # all variables between the snapshot of BUILT_IN_VARS and this place in the code
 DEFINED_VARS:=$(filter-out $(BUILT_IN_VARS) BUILT_IN_VARS, $(.VARIABLES))
 ###########
@@ -80,6 +84,10 @@ DEFINED_VARS:=$(filter-out $(BUILT_IN_VARS) BUILT_IN_VARS, $(.VARIABLES))
 .PHONY: all
 all: $(ALL)
 	@true
+
+.PHONY: pylint
+pylint:
+	$(Q)pymakehelper only_print_on_error python -m pylint --reports=n --score=n $(PYTHON_SRC)
 
 .PHONY: debug
 debug:
@@ -116,3 +124,18 @@ $(CSSCHECK): $(SOURCES_CSS)
 	$(info doing [$@])
 	$(Q)pymakehelper wrapper_css_validator java -jar $(TOOL_CSS_VALIDATOR) --profile=css3 --output=text -vextwarning=true --warning=0 $(addprefix file:,$(SOURCES_CSS))
 	$(Q)pymakehelper touch_mkdir $@
+
+############
+# patterns #
+############
+$(PYTHON_LINT): out/%.lint: %.py .pylintrc
+	$(info doing [$@])
+	$(Q)pymakehelper error_on_print python -m pylint --reports=n --score=n $<
+	$(Q)pymakehelper touch_mkdir $@
+
+##########
+# alldep #
+##########
+ifeq ($(DO_ALLDEP),1)
+.EXTRA_PREREQS+=$(foreach mk, ${MAKEFILE_LIST},$(abspath ${mk}))
+endif # DO_ALLDEP

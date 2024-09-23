@@ -6,15 +6,10 @@ List all machines in all zones
 
 from googleapiclient import discovery
 from oauth2client.client import GoogleCredentials
+import google.auth
 
 
-# Initialize the Compute Engine API client
-_, project_id = google.auth.default() 
-credentials = GoogleCredentials.get_application_default()
-compute = discovery.build("compute", "v1", credentials=credentials)
-
-
-def get_machine_data():
+def get_machine_data(project_id, compute):
     """ list all instances in all zones """
     # pylint: disable=no-member
     request = compute.instances().aggregatedList(project=project_id)
@@ -43,6 +38,14 @@ def get_machine_data():
         })
     return data
 
-# Example usage
-for d in get_machine_data():
-    print(d)
+def main():
+    """ main entry point """
+    _, project_id = google.auth.default()
+    credentials = GoogleCredentials.get_application_default()
+    compute = discovery.build("compute", "v1", credentials=credentials)
+    for d in get_machine_data(project_id, compute):
+        print(d)
+
+
+if __name__ == "__main__":
+    main()

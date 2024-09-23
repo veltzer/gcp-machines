@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 
+"""
+List all quote id names on GCP
+"""
+
 from google.cloud import cloudquotas_v1
 import google.auth
 
@@ -14,7 +18,7 @@ def list_all_quota_ids():
         raise ValueError("Project ID not found. Check your GCP credentials.")
 
     client = cloudquotas_v1.CloudQuotasClient()
-    service_name = 'compute.googleapis.com'
+    # service_name = 'compute.googleapis.com'
     parent = f"projects/{project_id}/locations/-"
     quotas = client.list_quota_infos(parent=parent)
     for quota in quotas:
