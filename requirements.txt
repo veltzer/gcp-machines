@@ -19,9 +19,14 @@ google-api-core==2.19.1
 google-api-python-client==2.142.0
 google-auth==2.34.0
 google-auth-httplib2==0.2.0
+google-cloud-compute==1.19.2
 google-cloud-core==2.4.1
 google-cloud-datastore==2.20.1
+google-cloud-quotas==0.1.10
+google-cloud-resource-manager==1.12.5
+google-cloud-service-usage==1.10.5
 googleapis-common-protos==1.65.0
+grpc-google-iam-v1==0.13.1
 grpcio==1.66.0
 grpcio-status==1.66.0
 gunicorn==23.0.0
@@ -48,6 +53,7 @@ pycparser==2.22
 pydmt==0.3.16
 pyfakeuse==0.0.8
 Pygments==2.18.0
+pygooglecloud==0.0.2
 pylint==3.2.6
 pylogconf==0.0.37
 pymakehelper==0.0.30

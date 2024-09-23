@@ -4,10 +4,12 @@ install_requires = [
     "flask",
     "google-cloud-datastore",
     "google-api-python-client",
+    "google-auth",
     "oauth2client",
     "bcrypt",
     "gunicorn",
     "cryptography",
+    "pygooglecloud",
 ]
 build_requires = [
     "pymakehelper",
