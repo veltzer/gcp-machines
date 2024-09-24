@@ -1,11 +1,17 @@
 # THIS IS AN AUTO-GENERATED FILE. DO NOT EDIT!
 flask
-google-cloud-datastore
-google-api-python-client
 oauth2client
 bcrypt
 gunicorn
 cryptography
+pygooglecloud
+google-cloud-core
+google-cloud-quotas
+google-cloud-datastore
+google-cloud-service-usage
+google-cloud-resource-manager
+google-api-python-client
+google-auth
 pymakehelper
 pydmt
 pylint

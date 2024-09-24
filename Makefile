@@ -13,6 +13,8 @@ DO_CHECKCSS:=0
 DO_ALLDEP:=1
 # do you want to check python code with pylint?
 DO_PYLINT:=1
+# do you want to check bash syntax?
+DO_BASH_CHECK:=1
 
 #########
 # tools #
@@ -42,6 +44,13 @@ ALL:=
 PYTHON_SRC:=$(shell find scripts -type f -and -name "*.py")
 PYTHON_LINT=$(addprefix out/, $(addsuffix .lint, $(basename $(PYTHON_SRC))))
 
+BASH_SRC:=$(shell find scripts -name "*.sh")
+BASH_CHECK:=$(addprefix out/, $(addsuffix .check, $(basename $(BASH_SRC))))
+
+SOURCES_JS:=$(shell find static/js -name "*.js")
+SOURCES_HTML:=$(shell find static/html -name "*.html")
+SOURCES_CSS:=$(shell find static/css -name "*.css")
+
 ifeq ($(DO_CHECKJS),1)
 ALL+=$(JSCHECK)
 all: $(ALL)
@@ -63,6 +72,10 @@ ALL+=$(PYTHON_LINT)
 CLEAN+=$(PYTHON_LINT)
 endif # DO_PYLINT
 
+ifeq ($(DO_BASH_CHECK),1)
+ALL+=$(BASH_CHECK)
+endif # DO_BASH_CHECK
+
 # silent stuff
 ifeq ($(DO_MKDBG),1)
 Q:=
@@ -71,10 +84,6 @@ else # DO_MKDBG
 Q:=@
 #.SILENT:
 endif # DO_MKDBG
-
-SOURCES_JS:=$(shell find static/js -name "*.js")
-SOURCES_HTML:=$(shell find static/html -name "*.html")
-SOURCES_CSS:=$(shell find static/css -name "*.css")
 
 # all variables between the snapshot of BUILT_IN_VARS and this place in the code
 DEFINED_VARS:=$(filter-out $(BUILT_IN_VARS) BUILT_IN_VARS, $(.VARIABLES))
@@ -131,6 +140,10 @@ $(CSSCHECK): $(SOURCES_CSS)
 $(PYTHON_LINT): out/%.lint: %.py .pylintrc
 	$(info doing [$@])
 	$(Q)pymakehelper error_on_print python -m pylint --reports=n --score=n $<
+	$(Q)pymakehelper touch_mkdir $@
+$(BASH_CHECK): out/%.check: %.sh .shellcheckrc
+	$(info doing [$@])
+	$(Q)shellcheck --severity=error --shell=bash --external-sources --source-path="$$HOME" $<
 	$(Q)pymakehelper touch_mkdir $@
 
 ##########

@@ -2,14 +2,19 @@ config_requires = []
 dev_requires = []
 install_requires = [
     "flask",
-    "google-cloud-datastore",
-    "google-api-python-client",
-    "google-auth",
     "oauth2client",
     "bcrypt",
     "gunicorn",
     "cryptography",
     "pygooglecloud",
+    # google modules
+    "google-cloud-core",
+    "google-cloud-quotas",
+    "google-cloud-datastore",
+    "google-cloud-service-usage",
+    "google-cloud-resource-manager",
+    "google-api-python-client",
+    "google-auth",
 ]
 build_requires = [
     "pymakehelper",

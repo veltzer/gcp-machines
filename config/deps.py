@@ -7,6 +7,8 @@ packages = [
     "npm",
     # for csstidy
     "csstidy",
+    # for checking my shell scripts
+    "shellcheck",
 ]
 tools = [
     "jsl",
