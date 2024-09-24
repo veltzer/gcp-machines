@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-List all quote id names on GCP
+List all quota id names on GCP
 """
 
 from google.cloud import cloudquotas_v1
