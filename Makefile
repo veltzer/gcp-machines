@@ -43,12 +43,12 @@ ALL:=
 PYTHON_SRC:=$(shell find scripts -type f -and -name "*.py")
 PYTHON_LINT=$(addprefix out/, $(addsuffix .lint, $(basename $(PYTHON_SRC))))
 
-BASH_SRC:=$(shell find scripts -name "*.sh")
+BASH_SRC:=$(shell find scripts -type f -and -name "*.sh")
 BASH_CHECK:=$(addprefix out/, $(addsuffix .check, $(basename $(BASH_SRC))))
 
-SOURCES_JS:=$(shell find static/js -name "*.js")
-SOURCES_HTML:=$(shell find static/html -name "*.html")
-SOURCES_CSS:=$(shell find static/css -name "*.css")
+SOURCES_JS:=$(shell find static/js -type f -and -name "*.js")
+SOURCES_HTML:=$(shell find static/html -type f -and -name "*.html")
+SOURCES_CSS:=$(shell find static/css -type f -and -name "*.css")
 
 ifeq ($(DO_CHECKJS),1)
 ALL+=$(JSCHECK)
