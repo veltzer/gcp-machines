@@ -16,9 +16,9 @@ DO_PYLINT:=1
 # do you want to check bash syntax?
 DO_BASH_CHECK:=1
 
-#########
-# tools #
-#########
+########
+# code #
+########
 TOOL_COMPILER:=tools/closure-compiler-v20160822.jar
 TOOL_JSMIN:=tools/jsmin
 TOOL_CSS_VALIDATOR:=tools/css-validator/css-validator.jar
@@ -34,9 +34,6 @@ JSCHECK:=out/jscheck.stamp
 HTMLCHECK:=out/html.stamp
 CSSCHECK:=out/css.stamp
 
-########
-# code #
-########
 CLEAN:=
 ALL:=
 
@@ -84,11 +81,9 @@ Q:=@
 #.SILENT:
 endif # DO_MKDBG
 
-# all variables between the snapshot of BUILT_IN_VARS and this place in the code
-DEFINED_VARS:=$(filter-out $(BUILT_IN_VARS) BUILT_IN_VARS, $(.VARIABLES))
-###########
-# targets #
-###########
+#########
+# rules #
+#########
 .PHONY: all
 all: $(ALL)
 	@true
@@ -100,7 +95,6 @@ pylint:
 .PHONY: debug
 debug:
 	$(info doing [$@])
-	$(foreach v, $(DEFINED_VARS), $(info $(v) = $($(v))))
 .PHONY: clean
 clean:
 	$(info doing [$@])
