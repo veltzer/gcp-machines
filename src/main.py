@@ -13,7 +13,7 @@ import google.auth
 
 app = flask.Flask(
     __name__,
-    template_folder="static/templates",
+    # template_folder="static/templates",
 )
 
 
