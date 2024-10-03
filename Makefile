@@ -4,11 +4,13 @@
 # do you want to see the commands executed ?
 DO_MKDBG:=0
 # do you want to check the javascript code?
-DO_CHECKJS:=1
+DO_CHECKJS:=0
 # do you want to validate html?
-DO_CHECKHTML:=1
+DO_CHECKHTML:=0
 # do you want to validate css?
 DO_CHECKCSS:=0
+# do you want to check jinja files?
+DO_CHECK_JINJA:=0
 # do you want dependency on the makefile itself ?
 DO_ALLDEP:=1
 # do you want to check python code with pylint?
@@ -30,10 +32,6 @@ TOOL_YUICOMPRESSOR:=/usr/bin/yui-compressor
 TOOL_TIDY=/usr/bin/tidy
 TOOL_CSSTIDY=/usr/bin/csstidy
 
-JSCHECK:=out/jscheck.stamp
-HTMLCHECK:=out/html.stamp
-CSSCHECK:=out/css.stamp
-
 CLEAN:=
 ALL:=
 
@@ -43,25 +41,22 @@ PYTHON_LINT=$(addprefix out/, $(addsuffix .lint, $(basename $(PYTHON_SRC))))
 BASH_SRC:=$(shell find scripts -type f -and -name "*.sh")
 BASH_CHECK:=$(addprefix out/, $(addsuffix .check, $(basename $(BASH_SRC))))
 
-SOURCES_JS:=$(shell find static/js -type f -and -name "*.js")
-SOURCES_HTML:=$(shell find static/html -type f -and -name "*.html")
-SOURCES_CSS:=$(shell find static/css -type f -and -name "*.css")
+SOURCES_JS:=$(shell pymakehelper no_err find src/js -type f -and -name "*.js" 2> /dev/null)
+SOURCES_HTML:=$(shell pymakehelper no_err find src/html -type f -and -name "*.html" 2> /dev/null)
+SOURCES_CSS:=$(shell pymakehelper no_err find src/css -type f -and -name "*.css" 2> /dev/null)
+SOURCES_JINJA:=$(shell pymakehelper no_err find src/templates -type f -and -name "*.html" 2> /dev/null)
 
-ifeq ($(DO_CHECKJS),1)
-ALL+=$(JSCHECK)
-all: $(ALL)
-CLEAN+=$(JSCHECK)
-endif # DO_CHECKJS
+ifeq ($(DO_CHECK_JS),1)
+endif # DO_CHECK_JS
 
-ifeq ($(DO_CHECKHTML),1)
-ALL+=$(HTMLCHECK)
-CLEAN+=$(HTMLCHECK)
-endif # DO_CHECKHTML
+ifeq ($(DO_CHECK_HTML),1)
+endif # DO_CHECK_HTML
 
-ifeq ($(DO_CHECKCSS),1)
-ALL+=$(CSSCHECK)
-CLEAN+=$(CSSCHECK)
-endif # DO_CHECKCSS
+ifeq ($(DO_CHECK_CSS),1)
+endif # DO_CHECK_CSS
+
+ifeq ($(DO_CHECK_JINJA),1)
+endif # DO_CHECK_JINJA
 
 ifeq ($(DO_PYLINT),1)
 ALL+=$(PYTHON_LINT)
@@ -70,6 +65,7 @@ endif # DO_PYLINT
 
 ifeq ($(DO_BASH_CHECK),1)
 ALL+=$(BASH_CHECK)
+CLEAN+=$(BASH_CHECK)
 endif # DO_BASH_CHECK
 
 # silent stuff
@@ -95,6 +91,10 @@ pylint:
 .PHONY: debug
 debug:
 	$(info doing [$@])
+	$(info SOURCES_JS is $(SOURCES_JS))
+	$(info SOURCES_HTML is $(SOURCES_HTML))
+	$(info SOURCES_CSS is $(SOURCES_CSS))
+	$(info SOURCES_JINJA is $(SOURCES_JINJA))
 .PHONY: clean
 clean:
 	$(info doing [$@])
@@ -103,29 +103,6 @@ clean:
 clean_hard:
 	$(info doing [$@])
 	$(Q)git clean -qffxd
-.PHONY: checkjs
-checkjs: $(JSCHECK)
-	$(info doing [$@])
-.PHONY: checkhtml
-checkhtml: $(HTMLCHECK)
-	$(info doing [$@])
-.PHONY: checkcss
-checkcss: $(CSSCHECK)
-	$(info doing [$@])
-$(JSCHECK): $(SOURCES_JS)
-	$(info doing [$@])
-	$(Q)pymakehelper touch_mkdir $@
-# $(Q)pymakehelper only_print_on_error $(TOOL_GJSLINT) --flagfile support/gjslint.cfg $(SOURCES_JS)
-# $(Q)$(TOOL_JSL) --conf=support/jsl.conf --quiet --nologo --nosummary --nofilelisting $(SOURCES_JS)
-$(HTMLCHECK): $(SOURCES_HTML)
-	$(info doing [$@])
-	$(Q)pymakehelper touch_mkdir $@
-#$(Q)pymakehelper only_print_on_error node_modules/.bin/htmlhint $(SOURCES_HTML)
-#$(Q)$(TOOL_TIDY) -errors -q -utf8 $(SOURCES_HTML)
-$(CSSCHECK): $(SOURCES_CSS)
-	$(info doing [$@])
-	$(Q)pymakehelper wrapper_css_validator java -jar $(TOOL_CSS_VALIDATOR) --profile=css3 --output=text -vextwarning=true --warning=0 $(addprefix file:,$(SOURCES_CSS))
-	$(Q)pymakehelper touch_mkdir $@
 
 ############
 # patterns #
