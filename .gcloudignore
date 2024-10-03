@@ -1,7 +1,6 @@
 # ignore everything that .gitignore ignores
 #!include:.gitignore
 
-# ignore the entire .idea folder
 /db
 /misc
 /out
