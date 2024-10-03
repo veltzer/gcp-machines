@@ -1,14 +1,7 @@
-# ignore this file
-/.gcloudignore
-# ignore the entire git folder
-/.git
-# ignore the git ignore file
-/.gitignore
 # ignore everything that .gitignore ignores
 #!include:.gitignore
 
 # ignore the entire .idea folder
-/.idea
 /db
 /misc
 /out
@@ -21,5 +14,8 @@
 /Makefile
 /README.md
 /package.json
-/.pylintrc
-/.myenv
+/package-lock.json
+/templates
+/LICENSE
+/.??*
+/requirements.thawed.txt
