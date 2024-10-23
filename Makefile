@@ -3,16 +3,14 @@
 ##############
 # do you want to see the commands executed ?
 DO_MKDBG:=0
-# do you want to check the javascript code?
-DO_CHECKJS:=0
-# do you want to validate html?
-DO_CHECKHTML:=0
-# do you want to validate css?
-DO_CHECKCSS:=0
-# do you want to check jinja files?
-DO_CHECK_JINJA:=0
 # do you want dependency on the makefile itself ?
 DO_ALLDEP:=1
+# do you want to check the javascript code?
+DO_CHECKJS:=1
+# do you want to validate html?
+DO_CHECKHTML:=1
+# do you want to validate css?
+DO_CHECKCSS:=0
 # do you want to check python code with pylint?
 DO_PYLINT:=1
 # do you want to check bash syntax?
@@ -44,7 +42,6 @@ BASH_CHECK:=$(addprefix out/, $(addsuffix .check, $(basename $(BASH_SRC))))
 SOURCES_JS:=$(shell pymakehelper no_err find src/js -type f -and -name "*.js" 2> /dev/null)
 SOURCES_HTML:=$(shell pymakehelper no_err find src/html -type f -and -name "*.html" 2> /dev/null)
 SOURCES_CSS:=$(shell pymakehelper no_err find src/css -type f -and -name "*.css" 2> /dev/null)
-SOURCES_JINJA:=$(shell pymakehelper no_err find src/templates -type f -and -name "*.html" 2> /dev/null)
 
 ifeq ($(DO_CHECK_JS),1)
 endif # DO_CHECK_JS
@@ -54,9 +51,6 @@ endif # DO_CHECK_HTML
 
 ifeq ($(DO_CHECK_CSS),1)
 endif # DO_CHECK_CSS
-
-ifeq ($(DO_CHECK_JINJA),1)
-endif # DO_CHECK_JINJA
 
 ifeq ($(DO_PYLINT),1)
 ALL+=$(PYTHON_LINT)
@@ -94,7 +88,6 @@ debug:
 	$(info SOURCES_JS is $(SOURCES_JS))
 	$(info SOURCES_HTML is $(SOURCES_HTML))
 	$(info SOURCES_CSS is $(SOURCES_CSS))
-	$(info SOURCES_JINJA is $(SOURCES_JINJA))
 .PHONY: clean
 clean:
 	$(info doing [$@])
