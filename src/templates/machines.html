@@ -16,21 +16,28 @@
 			}
 		</style>
 		<script>
-			function copy(button) {
-				navigator.clipboard.writeText(button.textContent);
+			function copy(button, text) {
+				navigator.clipboard.writeText(text);
+				const originalText = button.textContent;
+				button.textContent = 'Copied!';
+				// Reset button after 2 seconds
+				setTimeout(() => {
+					button.classList.remove('copied');
+					button.textContent = originalText;
+				}, 2000);
+			}
+			function navigate(button, url) {
+				window.location.href=url;
 			}
 		</script>
 	</head>
 	<body>
 		<div class="machine-container">
 			{% for machine in machines %}
-				<div>
-				<a href="{{ url_for('process', **machine) }}">
-				<button>
+				<button onclick="navigate(this,'{{ url_for('process', **machine) }}')">
 					switch state
 				</button>
-				</a>
-				<button onclick="copy(this)">
+				<button onclick="copy(this,'{{machine.ip}}')">
 					Copy IP
 				</button>
 				<button>
