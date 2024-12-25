@@ -3,30 +3,43 @@
 	<head>
 		<title>Machines List</title>
 		<style>
-			.button-container {
+			.machine-container {
 				display: flex;
-				flex-direction: column; /* Arrange buttons vertically */
+				flex-direction: column;
 			}
-			.button-container button {
+			.machine-container button {
 				margin-bottom: 10px; /* Add some space between buttons */
 				cursor: pointer; /* Indicate clickable element */
-				font-size: 18px;  /* Increase font size */
+				font-size: 18px; /* Increase font size */
 				padding: 10px 20px; /* Add padding for better visual appeal */
 				border-radius: 5px; /* Add rounded corners */
 			}
 		</style>
+		<script>
+			function copy(button) {
+				navigator.clipboard.writeText(button.textContent);
+			}
+		</script>
 	</head>
 	<body>
-		<div class="button-container">
+		<div class="machine-container">
 			{% for machine in machines %}
+				<div>
 				<a href="{{ url_for('process', **machine) }}">
 				<button>
-					{{machine.name}} {{machine.status}}
-					{{machine.owner}}
-					{{machine.zone}} {{machine.number}}
-					{{machine.ip}}
+					switch state
 				</button>
 				</a>
+				<button onclick="copy(this)">
+					Copy IP
+				</button>
+				<button>
+					{{machine.status}}
+					{{machine.owner}}
+					{{machine.number}}
+					{{machine.ip}}
+				</button>
+				</div>
 			{% endfor %}
 		</div>
 	</body>
