@@ -25,28 +25,60 @@
 					button.classList.remove('copied');
 					button.textContent = originalText;
 				}, 2000);
+				button.onclick = null;
 			}
 			function navigate(button, url) {
 				window.location.href=url;
+				button.onclick = null;
 			}
+			function startAutoRefresh() {
+				// Get the refresh count from localStorage
+				let refreshCount = localStorage.getItem("refreshCount");
+				let isComplete = localStorage.getItem("isComplete");
+				// If theres no count and cycle isnt complete, start fresh
+				if (!refreshCount && !isComplete) {
+					refreshCount = 60;
+				} else {
+					refreshCount = parseInt(refreshCount);
+				}
+				// If we still have refreshes remaining
+				if (refreshCount > 0) {
+					// Decrease count and save
+					refreshCount--;
+					localStorage.setItem("refreshCount", refreshCount);
+					console.log(`Refreshes remaining: ${refreshCount}`);
+					// Set up next refresh
+					setTimeout(() => {
+						location.reload();
+					}, 5000);
+					// If this was the last refresh, mark as complete
+					if (refreshCount === 0) {
+						localStorage.setItem("isComplete", "true");
+					}
+				} else {
+					// Show completion message
+					console.log("Refresh cycle completed!");
+				}
+			}
+			// window.onload = startAutoRefresh;
 		</script>
 	</head>
 	<body>
 		<div class="machine-container">
 			{% for machine in machines %}
 				<div>
-				<button onclick="navigate(this,'{{ url_for('process', **machine) }}')">
-					switch state
-				</button>
-				<button onclick="copy(this,'{{machine.ip}}')">
-					Copy IP
-				</button>
-				<button>
-					{{machine.status}}
-					{{machine.owner}}
-					{{machine.number}}
-					{{machine.ip}}
-				</button>
+					<button>
+						{{machine.status}}
+						{{machine.owner}}
+						{{machine.number}}
+						{{machine.ip}}
+					</button>
+					<button onclick="copy(this,'{{machine.ip}}')">
+						Copy IP
+					</button>
+					<button onclick="navigate(this,'{{ url_for('process', **machine) }}')">
+						switch state
+					</button>
 				</div>
 			{% endfor %}
 		</div>
