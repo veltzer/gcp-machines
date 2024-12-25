@@ -34,6 +34,7 @@
 	<body>
 		<div class="machine-container">
 			{% for machine in machines %}
+				<div>
 				<button onclick="navigate(this,'{{ url_for('process', **machine) }}')">
 					switch state
 				</button>
