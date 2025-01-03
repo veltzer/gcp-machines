@@ -11,10 +11,7 @@ from oauth2client.client import GoogleCredentials
 import google.auth
 
 
-app = flask.Flask(
-    __name__,
-    # template_folder="static/templates",
-)
+app = flask.Flask(__name__)
 
 
 _, project_id = google.auth.default()
