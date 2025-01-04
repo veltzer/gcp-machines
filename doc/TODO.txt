@@ -1,3 +1,5 @@
+- move to the non discovery api for the google stuff.
+
 - create the private and public keys on the fly one per student.
 - mail the keys to the students with the app url.
 - lint all python scripts
