@@ -1,4 +1,5 @@
 - move to the non discovery api for the google stuff.
+- do take on task queue to turn off a machine 4 hours after it has been turned on.
 
 - create the private and public keys on the fly one per student.
 - mail the keys to the students with the app url.
