@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-create machines on the google clouse according to the student list
+create machines on the google cloud according to the student list
 """
 
 import time
