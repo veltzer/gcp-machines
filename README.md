@@ -18,4 +18,4 @@ I use this to train students.
 
 chat with me at [![gitter](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/veltzer/mark.veltzer)
 
-Mark Veltzer, Copyright © 2024
+Mark Veltzer, Copyright © 2024, 2025
