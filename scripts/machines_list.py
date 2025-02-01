@@ -27,8 +27,8 @@ def get_machine_data(project_id, compute):
     data = []
     for instance in all_instances:
         owner= instance.get("labels")["owner"]
-        ip=instance['networkInterfaces'][0]["accessConfigs"][0].get("natIP", "N/A")
-        zone = instance['zone'].split('/')[-1]
+        ip=instance["networkInterfaces"][0]["accessConfigs"][0].get("natIP", "N/A")
+        zone = instance["zone"].split("/")[-1]
         data.append({
             "name": instance["name"],
             "status": instance["status"],

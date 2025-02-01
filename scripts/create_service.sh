@@ -10,7 +10,7 @@ SERVICE_ACCOUNT_EXISTS=$(gcloud iam service-accounts list \
 
 if [ -n "$SERVICE_ACCOUNT_EXISTS" ]
 then
-	echo "Service account '$SERVICE_ACCOUNT_NAME' exists. Deleting..."
+	echo "Service account [$SERVICE_ACCOUNT_NAME] exists. Deleting..."
 	gcloud iam service-accounts delete "$SERVICE_ACCOUNT_EXISTS"
 	echo "Service account deleted."
 fi

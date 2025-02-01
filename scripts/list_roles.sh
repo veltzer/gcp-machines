@@ -8,4 +8,4 @@ gcloud projects get-iam-policy "${PROJECT_ID}"\
 	--flatten="bindings[].members"\
 	--format="table(bindings.role)"\
 	--filter="bindings.members:serviceAccount:${EMAIL}"\
-	| awk 'NR>1' | sort -u
+	| awk "NR>1" | sort -u

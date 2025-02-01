@@ -13,7 +13,8 @@ def list_gcp_quotas(project_id):
     project_quotas = service.projects().get(project=project_id).execute()["quotas"]
     print("Project-level Quotas:")
     for quota in project_quotas:
-        print(f"  Quota type: {quota['metric']}")
+        metric = quota["metric"]
+        print(f"  Quota type: {metric}")
 
     # Get regional quotas
     # pylint: disable=no-member
@@ -23,8 +24,9 @@ def list_gcp_quotas(project_id):
         print(f"\nRegion: {region_name}")
         region_quotas = region["quotas"]
         for quota in region_quotas:
-            # print(f"  Quota type: {quota['metric']}")
-            print(f"  Quota type: {quota['metric']}, Limit: {quota['limit']}")
+            metric = quota["metric"]
+            limit = quota["limit"]
+            print(f"  Quota type: {metric}, Limit: {limit}")
 
 if __name__ == "__main__":
     list_gcp_quotas(project_id="veltzer-machines-id")
