@@ -41,6 +41,7 @@ def get_machine_data(project_id, compute):
 def main():
     """ main entry point """
     _, project_id = google.auth.default()
+    print(f"project_id is {project_id}")
     credentials = GoogleCredentials.get_application_default()
     compute = discovery.build("compute", "v1", credentials=credentials)
     for d in get_machine_data(project_id, compute):
