@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 
+"""
+Get all quota types in GCP
+"""
+
 # pylint: disable=no-name-in-module
 from google.cloud import compute_v1
 import google.auth

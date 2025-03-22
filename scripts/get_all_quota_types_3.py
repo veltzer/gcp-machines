@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 
+"""
+Third attempt at getting all quota strings
+"""
+
 from googleapiclient.discovery import build
 
 def list_gcp_quotas(project_id):

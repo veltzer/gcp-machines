@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 
+"""
+Open a specific port on all of my machines in GCP
+"""
+
 from googleapiclient import discovery
 from oauth2client.client import GoogleCredentials
 

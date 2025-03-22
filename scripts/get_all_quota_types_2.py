@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 
+"""
+second attempt at getting all quota types
+"""
+
 from googleapiclient.discovery import build
 
 def list_gcp_quotas():
