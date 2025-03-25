@@ -1,3 +1,7 @@
+"""
+os level dependencies for this project
+"""
+
 packages = [
     # for validating html
     "tidy",
@@ -10,6 +14,7 @@ packages = [
     # for checking my shell scripts
     "shellcheck",
 ]
+
 tools = [
     "jsl",
     "jsmin",
