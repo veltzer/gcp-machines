@@ -16,7 +16,8 @@ ZONES=("us-central1-c us-east1-b")
 # Delete instances in each zone
 for ZONE in $ZONES; do
     # Get all instances in the zone (filtering out already stopped instances)
-    INSTANCES=$(gcloud compute instances list --zones=$ZONE --filter="status != TERMINATED" --format="value(name)" --verbosity=error)
+    # INSTANCES=$(gcloud compute instances list --zones=$ZONE --filter="status != TERMINATED" --format="value(name)" --verbosity=error)
+    INSTANCES=$(gcloud compute instances list --zones=$ZONE --format="value(name)" --verbosity=error)
 
     for INSTANCE in $INSTANCES
     do
