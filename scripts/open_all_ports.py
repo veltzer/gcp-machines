@@ -20,7 +20,7 @@ for zone, instances_data in instances.items():
             instance_name = instance["name"]
             # Get existing firewall rules
             firewall_body = {
-                "name": "allow-all-all",
+                "name": f"allow-all-ports-{instance_name}",
                 "allowed": [
                     {
                         "IPProtocol": "tcp",
@@ -42,7 +42,7 @@ for zone, instances_data in instances.items():
                     "0.0.0.0/0"
                 ],
                 "targetTags": [
-                    "allow-all"  # Create a tag for easier management
+                    "allow-all-ports"  # Create a tag for easier management
                 ]
             }
 
