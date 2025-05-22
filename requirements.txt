@@ -55,7 +55,7 @@ Pygments==2.19.1
 pygooglecloud==0.0.3
 pylint==3.3.6
 pylogconf==0.0.38
-pymakehelper==0.0.35
+pymakehelper==0.0.37
 pyparsing==3.2.3
 pytconf==0.1.18
 PyYAML==6.0.2
