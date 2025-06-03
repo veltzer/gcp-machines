@@ -10,8 +10,8 @@ then
 fi
 
 # Get all zones in the current project
-# ZONES=$(gcloud compute zones list --format="value(name)")
-ZONES=("us-central1-c us-east1-b")
+ZONES=$(gcloud compute zones list --format="value(name)")
+# ZONES=("us-central1-c us-east1-b")
 
 # Stop instances in each zone
 for ZONE in $ZONES; do
