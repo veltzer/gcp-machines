@@ -104,7 +104,7 @@ def main():
     with open("student_list.txt", "r", encoding="utf8") as stream:
         for number, line in enumerate(stream):
             line = line.rstrip()
-            (owner,zone)=line.split(",")
+            (number,owner,zone)=line.split(",")
             wait = True
             print("creating", number, zone, owner)
             create_machine(number, zone, owner, wait, ssh_key)
