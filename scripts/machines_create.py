@@ -99,9 +99,9 @@ def create_machine(number, zone, owner, wait, ssh_key):
 
 def main():
     """ main entry point """
-    with open(os.path.expanduser("~/.ssh/id_machines.pub"), "r", encoding="utf8") as f:
+    with open(os.path.expanduser("~/.ssh/id_machines.pub"), encoding="utf8") as f:
         ssh_key = f.read().rstrip("\n")
-    with open("student_list.txt", "r", encoding="utf8") as stream:
+    with open("student_list.txt", encoding="utf8") as stream:
         for number, line in enumerate(stream):
             line = line.rstrip()
             (number,owner,zone)=line.split(",")

@@ -9,7 +9,7 @@ import json
 
 def get_service_account_email(credentials_file):
     """ get the account email from a credentials file """
-    with open(credentials_file, "r", encoding="utf8") as f:
+    with open(credentials_file, encoding="utf8") as f:
         data = json.load(f)
         return data["client_email"]
 
