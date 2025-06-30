@@ -12,6 +12,7 @@ google-cloud-service-usage
 gunicorn
 mypy
 oauth2client
+pyclassifiers
 pycmdtools
 pydmt
 pygooglecloud
