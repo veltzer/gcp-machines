@@ -1,5 +1,7 @@
 """ python deps for this project """
 
+import config.shared
+
 install_requires: list[str] = [
     "flask",
     "oauth2client",
@@ -16,9 +18,6 @@ install_requires: list[str] = [
     "google-api-python-client",
     "google-auth",
 ]
-build_requires: list[str] = [
-    "pydmt",
-    "pymakehelper",
-    "pylint",
-]
-requires = install_requires + build_requires
+build_requires: list[str] = config.shared.BUILD
+test_requires: list[str] = config.shared.TEST
+requires = install_requires + build_requires + test_requires
