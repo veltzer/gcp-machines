@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/bin/bash -eu
 
 echo "This script will delete ALL running Compute Engine instances in your project."
 read -p "Are you sure you want to proceed? (y/n): " CONFIRM

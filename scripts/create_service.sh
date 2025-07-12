@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/bin/bash -eu
 PROJECT_ID=$(./get_project_id.py)
 SERVICE_ACCOUNT_NAME="gae-machines-engine-sa"
 

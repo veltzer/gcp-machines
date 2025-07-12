@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/bin/bash -eu
 
 PROJECT_ID=$(./get_project_id.py)
 # echo "PROJECT_ID is ${PROJECT_ID}"
