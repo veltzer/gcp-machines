@@ -4,18 +4,18 @@
 List all regions in GCP
 """
 
-# pylint: disable=no-name-in-module
-from google.cloud import compute_v1
+from googleapiclient import discovery
 import google.auth
 
 def list_all_regions(project_id: str) -> None:
     """
     Lists and prints all available Google Cloud regions.
     """
-    compute_client = compute_v1.RegionsClient()
-    regions = compute_client.list(project=project_id)
-    for region in regions:
-        print(region.name)
+    credentials, _ = google.auth.default()
+    compute = discovery.build("compute", "v1", credentials=credentials)
+    regions = compute.regions().list(project=project_id).execute()
+    for region in regions['items']:
+        print(region['name'])
 
 def main():
     """ main entry point """
