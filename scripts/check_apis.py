@@ -1,30 +1,25 @@
 #!/usr/bin/env python
 """
 Checks the status of essential Google Cloud services for the project.
-This script verifies that 'compute.googleapis.com', 'datastore.googleapis.com',
-and 'gmail.googleapis.com' are enabled.
+This script verifies that "compute.googleapis.com", "datastore.googleapis.com",
+and "gmail.googleapis.com" are enabled.
 """
 
 import google.auth
 from googleapiclient import discovery
-from googleapiclient.errors import HttpError
 
 def check_service_status(project_id, service_name, service_usage):
     """
     Checks if a specific service is enabled for the project.
     """
-    try:
-        # pylint: disable=no-member
-        request = service_usage.services().get(
-            name=f"projects/{project_id}/services/{service_name}"
-        )
-        response = request.execute()
-        if response.get("state") == "ENABLED":
-            print(f"Service '{service_name}' is ENABLED.")
-        else:
-            print(f"Service '{service_name}' is {response.get('state', 'UNKNOWN')}.")
-    except HttpError as e:
-        print(f"Error checking service '{service_name}': {e}")
+    # pylint: disable=no-member
+    request = service_usage.services().get(
+        name=f"projects/{project_id}/services/{service_name}"
+    )
+    response = request.execute()
+    state = response.get("state")
+    print(f"Service [{service_name}] is [{state}]")
+
 
 def main():
     """
