@@ -19,7 +19,7 @@ def get_service_account_email():
 def grant_iam_permission(project_id: str, service_account_email: str):
     """Grant Security Reviewer role to service account"""
     credentials, _ = google.auth.default()
-    service = discovery.build('cloudresourcemanager', 'v1', credentials=credentials)
+    service = discovery.build("cloudresourcemanager", "v1", credentials=credentials)
 
     # Get current IAM policy
     policy = service.projects().getIamPolicy(resource=project_id).execute()
@@ -30,23 +30,23 @@ def grant_iam_permission(project_id: str, service_account_email: str):
 
     # Find existing binding or create new one
     binding_found = False
-    for binding in policy.get('bindings', []):
-        if binding['role'] == role:
-            if member not in binding['members']:
-                binding['members'].append(member)
+    for binding in policy.get("bindings", []):
+        if binding["role"] == role:
+            if member not in binding["members"]:
+                binding["members"].append(member)
             binding_found = True
             break
 
     if not binding_found:
-        if 'bindings' not in policy:
-            policy['bindings'] = []
-        policy['bindings'].append({
-            'role': role,
-            'members': [member]
+        if "bindings" not in policy:
+            policy["bindings"] = []
+        policy["bindings"].append({
+            "role": role,
+            "members": [member]
         })
 
     # Set the updated policy
-    set_policy_request = {'policy': policy}
+    set_policy_request = {"policy": policy}
     service.projects().setIamPolicy(resource=project_id, body=set_policy_request).execute()
     print(f"Granted {role} to {service_account_email}")
 

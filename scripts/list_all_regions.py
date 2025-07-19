@@ -14,8 +14,8 @@ def list_all_regions(project_id: str) -> None:
     credentials, _ = google.auth.default()
     compute = discovery.build("compute", "v1", credentials=credentials)
     regions = compute.regions().list(project=project_id).execute()
-    for region in regions['items']:
-        print(region['name'])
+    for region in regions["items"]:
+        print(region["name"])
 
 def main():
     """ main entry point """
