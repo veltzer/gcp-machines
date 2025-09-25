@@ -4,6 +4,8 @@ Manage compute instances in a GCP project.
 This script provides a command-line interface to create, list, stop, and delete virtual machines.
 """
 
+import sys
+import json
 import argparse
 import os
 import time
@@ -121,7 +123,7 @@ def main():
 
     # List command
     list_parser = subparsers.add_parser("list", help="List all VM instances.")
-    list_parser.set_defaults(func=lambda args, proj, comp: print(list_machines(proj, comp)))
+    list_parser.set_defaults(func=lambda args, proj, comp: json.dump(list_machines(proj, comp), fp=sys.stdout))
 
     # Create command
     create_parser = subparsers.add_parser("create", help="Create VM instances from a file.")
