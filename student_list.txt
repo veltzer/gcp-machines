@@ -16,3 +16,4 @@
 15,adi,us-east1-c
 16,shay,us-east1-c
 17,nadav,us-east1-c
+18,talb,us-east1-c
