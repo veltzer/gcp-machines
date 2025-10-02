@@ -4,7 +4,6 @@ import config.shared
 
 install_requires: list[str] = [
     "flask",
-    "oauth2client",
     "bcrypt",
     "gunicorn",
     "cryptography",

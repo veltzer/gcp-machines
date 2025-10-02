@@ -11,11 +11,10 @@ import os
 import time
 import google.auth
 from googleapiclient import discovery
-from oauth2client.client import GoogleCredentials
 
 def get_compute_client():
     """Initializes and returns a Compute Engine API client."""
-    credentials = GoogleCredentials.get_application_default()
+    credentials, _ = google.auth.default()
     return discovery.build("compute", "v1", credentials=credentials)
 
 def list_machines(project_id, compute):

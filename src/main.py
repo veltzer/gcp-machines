@@ -7,7 +7,6 @@ main application
 import os
 import flask
 from googleapiclient import discovery
-from oauth2client.client import GoogleCredentials
 import google.auth
 
 
@@ -15,7 +14,7 @@ app = flask.Flask(__name__)
 
 
 _, project_id = google.auth.default()
-credentials = GoogleCredentials.get_application_default()
+credentials, _ = google.auth.default()
 compute = discovery.build("compute", "v1", credentials=credentials)
 
 
