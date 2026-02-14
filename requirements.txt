@@ -28,7 +28,7 @@ google-cloud-service-usage==1.13.1
 googleapis-common-protos==1.70.0
 grpc-google-iam-v1==0.14.2
 grpcio==1.74.0
-grpcio-status==1.71.2
+grpcio-status==1.74.0
 gunicorn==23.0.0
 html5lib==1.1
 httplib2==0.22.0
@@ -54,7 +54,7 @@ pathspec==0.12.1
 platformdirs==4.3.8
 pluggy==1.6.0
 proto-plus==1.26.1
-protobuf==5.29.5
+protobuf==6.32.0rc2
 pyasn1==0.6.1
 pyasn1-modules==0.4.2
 pyclassifiers==0.0.20
@@ -66,14 +66,14 @@ pygments==2.19.2
 pygooglecloud==0.0.3
 pylint==3.3.8
 pylogconf==0.0.38
-pymakehelper==0.0.38
+pymakehelper==0.0.37
 pyparsing==3.2.3
-pytconf==0.1.21
+pytconf==0.1.19
 pytest==8.4.1
 python-dateutil==2.9.0.post0
 pytidylib==0.3.2
 pytz==2025.2
-pyyaml==6.0.3
+pyyaml==6.0.2
 referencing==0.36.2
 requests==2.32.5
 roman-numerals-py==3.1.0
@@ -91,7 +91,7 @@ sphinxcontrib-htmlhelp==2.1.0
 sphinxcontrib-jsmath==1.0.1
 sphinxcontrib-qthelp==2.0.0
 sphinxcontrib-serializinghtml==2.0.0
-termcolor==3.2.0
+termcolor==3.1.0
 tomlkit==0.13.3
 tqdm==4.67.1
 types-requests==2.32.4.20250809
