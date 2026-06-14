@@ -64,6 +64,18 @@ def list_machines(project_id, compute):
         })
     return data
 
+def print_machines_table(data):
+    """
+    Prints a list of {"owner", "ip"} dicts as an aligned text table.
+    """
+    headers = ("OWNER", "IP")
+    rows = [(row["owner"], row["ip"]) for row in data]
+    owner_width = max([len(headers[0])] + [len(r[0]) for r in rows])
+    ip_width = max([len(headers[1])] + [len(r[1]) for r in rows])
+    print(f"{headers[0]:<{owner_width}}  {headers[1]:<{ip_width}}")
+    for owner, ip in rows:
+        print(f"{owner:<{owner_width}}  {ip:<{ip_width}}")
+
 def create_machine(project_id, compute, number, zone, owner, wait, ssh_key):
     """
     Creates a single virtual machine instance.
@@ -140,7 +152,7 @@ def main():
 
     # List command
     list_parser = subparsers.add_parser("list", help="List students and public IPs of all VM instances.")
-    list_parser.set_defaults(func=lambda args, proj, comp: json.dump(list_machines(proj, comp), fp=sys.stdout))
+    list_parser.set_defaults(func=lambda args, proj, comp: print_machines_table(list_machines(proj, comp)))
 
     # List-full command
     list_full_parser = subparsers.add_parser("list_full", help="List full JSON info about all VM instances.")
