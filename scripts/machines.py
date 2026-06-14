@@ -17,9 +17,9 @@ def get_compute_client():
     credentials, _ = google.auth.default()
     return discovery.build("compute", "v1", credentials=credentials)
 
-def list_machines(project_id, compute):
+def get_all_instances(project_id, compute):
     """
-    Lists all instances in the project, returning a list of machine data.
+    Returns the raw list of all instances in the project.
     """
     all_instances = []
     request = compute.instances().aggregatedList(project=project_id)
@@ -31,18 +31,26 @@ def list_machines(project_id, compute):
         request = compute.instances().aggregatedList_next(
             previous_request=request, previous_response=response
         )
+    return all_instances
 
+def list_machines_full(project_id, compute):
+    """
+    Lists all instances in the project, returning the full JSON info for each.
+    """
+    return get_all_instances(project_id, compute)
+
+def list_machines(project_id, compute):
+    """
+    Lists all instances in the project, returning only the student (owner)
+    and public IP for each.
+    """
     data = []
-    for instance in all_instances:
+    for instance in get_all_instances(project_id, compute):
         owner = instance.get("labels", {}).get("owner", "N/A")
         ip = instance["networkInterfaces"][0]["accessConfigs"][0].get("natIP", "N/A")
-        zone = instance["zone"].split("/")[-1]
         data.append({
-            "name": instance["name"],
-            "status": instance["status"],
             "owner": owner,
             "ip": ip,
-            "zone": zone,
         })
     return data
 
@@ -121,8 +129,12 @@ def main():
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # List command
-    list_parser = subparsers.add_parser("list", help="List all VM instances.")
+    list_parser = subparsers.add_parser("list", help="List students and public IPs of all VM instances.")
     list_parser.set_defaults(func=lambda args, proj, comp: json.dump(list_machines(proj, comp), fp=sys.stdout))
+
+    # List-full command
+    list_full_parser = subparsers.add_parser("list_full", help="List full JSON info about all VM instances.")
+    list_full_parser.set_defaults(func=lambda args, proj, comp: json.dump(list_machines_full(proj, comp), fp=sys.stdout))
 
     # Create command
     create_parser = subparsers.add_parser("create", help="Create VM instances from a file.")
