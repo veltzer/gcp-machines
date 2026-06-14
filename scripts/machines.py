@@ -12,6 +12,16 @@ import time
 import google.auth
 from googleapiclient import discovery
 
+# Always read the student list from data.gi/student_list.txt at the repo root.
+STUDENT_LIST_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "data.gi",
+    "student_list.txt",
+)
+
+# Always read the SSH public key from ~/.ssh/id_machines.pub.
+SSH_KEY_FILE = os.path.expanduser("~/.ssh/id_machines.pub")
+
 def get_compute_client():
     """Initializes and returns a Compute Engine API client."""
     credentials, _ = google.auth.default()
@@ -139,19 +149,12 @@ def main():
     # Create command
     create_parser = subparsers.add_parser("create", help="Create VM instances from a file.")
     create_parser.add_argument(
-        "--student-list", default="student_list.txt", help="Path to the student list file."
-    )
-    create_parser.add_argument(
-        "--ssh-key-file", default="~/.ssh/id_machines.pub", help="Path to the public SSH key."
-    )
-    create_parser.add_argument(
         "--no-wait", action="store_true", help="Don't wait for instance creation to complete."
     )
     def create_command(args, project_id, compute):
-        ssh_key_path = os.path.expanduser(args.ssh_key_file)
-        with open(ssh_key_path, "r", encoding="utf-8") as f:
+        with open(SSH_KEY_FILE, "r", encoding="utf-8") as f:
             ssh_key = f.read().strip()
-        with open(args.student_list, "r", encoding="utf-8") as f:
+        with open(STUDENT_LIST_FILE, "r", encoding="utf-8") as f:
             for line in f:
                 number, owner, zone = line.strip().split(",")
                 create_machine(project_id, compute, number, zone, owner, not args.no_wait, ssh_key)
