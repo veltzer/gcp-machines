@@ -155,7 +155,7 @@ def main():
     list_parser.set_defaults(func=lambda args, proj, comp: print_machines_table(list_machines(proj, comp)))
 
     # List-full command
-    list_full_parser = subparsers.add_parser("list_full", help="List full JSON info about all VM instances.")
+    list_full_parser = subparsers.add_parser("list-json", help="List full JSON info about all VM instances.")
     list_full_parser.set_defaults(func=lambda args, proj, comp: json.dump(list_machines_full(proj, comp), fp=sys.stdout))
 
     # Create command
@@ -173,11 +173,11 @@ def main():
     create_parser.set_defaults(func=create_command)
 
     # Stop-all command
-    stop_parser = subparsers.add_parser("stop-all", help="Stop all running VM instances.")
+    stop_parser = subparsers.add_parser("stop", help="Stop all running VM instances.")
     stop_parser.set_defaults(func=lambda args, proj, comp: stop_all_machines(proj, comp))
 
     # Delete-all command
-    delete_parser = subparsers.add_parser("delete-all", help="Delete all VM instances.")
+    delete_parser = subparsers.add_parser("delete", help="Delete all VM instances.")
     delete_parser.set_defaults(func=lambda args, proj, comp: delete_all_machines(proj, comp))
 
     args = parser.parse_args()
