@@ -169,29 +169,36 @@ def delete_all_machines(project_id, compute, wait):
                     break
                 time.sleep(1)
 
-def machine_limits(project_id, compute):
+# Cache of per-region CPUS quota limit, keyed by region name. Populated lazily
+# by zone_machine_limit so zones sharing a region don't re-fetch it.
+_REGION_CPU_LIMIT_CACHE = {}
+
+def zone_machine_limit(project_id, compute, zone):
     """
-    For every zone in the project, prints the absolute cap on how many
-    machines of our standard machine type can be created there, based on
-    the region's CPU quota.
+    Returns the absolute cap on how many machines of our standard machine
+    type can be created in a zone, based on the region's CPU quota, or None
+    if the region has no CPUS quota.
 
     CPU quota in GCP is per-region, so each zone is mapped to its region
     (e.g. "us-central1-a" -> "us-central1"). The cap is the full
     CPUS quota limit // vCPUs-per-machine, regardless of current usage.
     """
-    # Cache CPU quota per region so we don't re-fetch for zones that share one.
-    region_cpu_limit = {}
+    region = zone.rsplit("-", 1)[0]
+    if region not in _REGION_CPU_LIMIT_CACHE:
+        region_info = compute.regions().get(project=project_id, region=region).execute()
+        cpu_quota = next(
+            (q for q in region_info.get("quotas", []) if q["metric"] == "CPUS"),
+            None,
+        )
+        _REGION_CPU_LIMIT_CACHE[region] = None if cpu_quota is None else int(cpu_quota["limit"])
+    cpu_limit = _REGION_CPU_LIMIT_CACHE[region]
+    return None if cpu_limit is None else cpu_limit // MACHINE_VCPUS
 
-    def cpu_limit_for_region(region):
-        if region not in region_cpu_limit:
-            region_info = compute.regions().get(project=project_id, region=region).execute()
-            cpu_quota = next(
-                (q for q in region_info.get("quotas", []) if q["metric"] == "CPUS"),
-                None,
-            )
-            region_cpu_limit[region] = None if cpu_quota is None else int(cpu_quota["limit"])
-        return region_cpu_limit[region]
-
+def machine_limits(project_id, compute):
+    """
+    For every zone in the project, prints the absolute cap on how many
+    machines of our standard machine type can be created there.
+    """
     # Gather every zone in the project.
     zone_names = []
     request = compute.zones().list(project=project_id)
@@ -203,9 +210,8 @@ def machine_limits(project_id, compute):
 
     rows = []
     for zone in sorted(zone_names):
-        region = zone.rsplit("-", 1)[0]
-        cpu_limit = cpu_limit_for_region(region)
-        allowed = "N/A" if cpu_limit is None else str(cpu_limit // MACHINE_VCPUS)
+        limit = zone_machine_limit(project_id, compute, zone)
+        allowed = "N/A" if limit is None else str(limit)
         rows.append((zone, allowed))
 
     zone_width = max([len("ZONE")] + [len(z) for z, _ in rows])
@@ -216,16 +222,15 @@ def machine_limits(project_id, compute):
 def show_input_sample():
     """
     Prints a fake 10-line sample of the input expected by `create`, so the
-    user can see what a valid student list file looks like. Each line is
-    "owner,zone".
+    user can see what a valid student list file looks like. Each line is a
+    single owner name; zones are assigned automatically at create time.
     """
     owners = [
         "alice", "bob", "carol", "dave", "eve",
         "frank", "grace", "heidi", "ivan", "judy",
     ]
-    for index, owner in enumerate(owners):
-        zone = ALLOWED_ZONES[index % len(ALLOWED_ZONES)]
-        print(f"{owner},{zone}")
+    for owner in owners:
+        print(owner)
 
 def main():
     """Main entry point and command-line parser."""
@@ -271,13 +276,13 @@ def main():
         with open(SSH_KEY_FILE, "r", encoding="utf-8") as f:
             ssh_key = f.read().strip()
         with open(STUDENT_LIST_FILE, "r", encoding="utf-8") as f:
-            entries = [line.strip().split(",") for line in f if line.strip()]
+            owners = [line.strip() for line in f if line.strip()]
 
         # Check owner uniqueness BEFORE creating anything, so we fail fast
         # instead of partway through creating machines.
         seen = set()
         duplicates = set()
-        for owner, _zone in entries:
+        for owner in owners:
             if owner in seen:
                 duplicates.add(owner)
             seen.add(owner)
@@ -287,16 +292,34 @@ def main():
                 f"{', '.join(sorted(duplicates))}"
             )
 
-        # Check that every zone is allowed BEFORE creating anything.
-        bad_zones = sorted({zone for _owner, zone in entries if zone not in ALLOWED_ZONES})
-        if bad_zones:
+        # Allocate owners to zones by walking ALLOWED_ZONES in order, filling
+        # each zone up to its per-zone machine limit before moving to the next.
+        # The whole allocation is computed BEFORE creating anything so we fail
+        # fast if there isn't enough total capacity.
+        assignments = []  # (owner, zone), in file order
+        remaining = list(owners)
+        for zone in ALLOWED_ZONES:
+            if not remaining:
+                break
+            limit = zone_machine_limit(project_id, compute, zone)
+            if limit is None:
+                continue
+            take, remaining = remaining[:limit], remaining[limit:]
+            assignments.extend((owner, zone) for owner in take)
+        if remaining:
+            capacity = sum(
+                limit
+                for zone in ALLOWED_ZONES
+                if (limit := zone_machine_limit(project_id, compute, zone)) is not None
+            )
             raise ValueError(
-                f"Disallowed zone(s) in {STUDENT_LIST_FILE}: {', '.join(bad_zones)}. "
-                f"Allowed zones are: {', '.join(ALLOWED_ZONES)}"
+                f"Not enough capacity in allowed zones for {len(owners)} machine(s): "
+                f"total capacity is {capacity} across {', '.join(ALLOWED_ZONES)}. "
+                f"Owner(s) left unassigned: {', '.join(remaining)}"
             )
 
         # The instance number is derived from the line position in the file.
-        for number, (owner, zone) in enumerate(entries):
+        for number, (owner, zone) in enumerate(assignments):
             create_machine(project_id, compute, number, zone, owner, args.wait, ssh_key)
     create_parser.set_defaults(func=create_command)
 
