@@ -129,7 +129,7 @@ def stop_all_machines(project_id, compute):
             else:
                 print(f"Skipping {instance['name']} in {zone_name} (status: {instance['status']})")
 
-def delete_all_machines(project_id, compute):
+def delete_all_machines(project_id, compute, wait):
     """
     Deletes all compute instances in the project.
     """
@@ -137,18 +137,44 @@ def delete_all_machines(project_id, compute):
         print("Aborted.")
         return
     instances = compute.instances().aggregatedList(project=project_id).execute()
+    operations = []
     for zone, zone_data in instances.get("items", {}).items():
         zone_name = zone.split("/")[-1]
         for instance in zone_data.get("instances", []):
             print(f"Deleting {instance['name']} in {zone_name}...")
-            compute.instances().delete(
+            operation = compute.instances().delete(
                 project=project_id, zone=zone_name, instance=instance["name"]
             ).execute()
+            operations.append((zone_name, operation["name"]))
+
+    if wait:
+        # Deletes are asynchronous; wait for each operation to finish so that a
+        # subsequent `list` doesn't still report the instances being deleted.
+        for zone_name, op_name in operations:
+            while True:
+                result = compute.zoneOperations().get(
+                    project=project_id, zone=zone_name, operation=op_name
+                ).execute()
+                if result["status"] == "DONE":
+                    if "error" in result:
+                        raise ValueError(result["error"])
+                    break
+                time.sleep(1)
 
 def main():
     """Main entry point and command-line parser."""
     parser = argparse.ArgumentParser(description="Manage GCP compute instances.")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    def add_wait_flag(subparser):
+        subparser.add_argument(
+            "--wait", dest="wait", action="store_true", default=True,
+            help="Wait for the operation to complete (default).",
+        )
+        subparser.add_argument(
+            "--no-wait", dest="wait", action="store_false",
+            help="Don't wait for the operation to complete.",
+        )
 
     # List command
     list_parser = subparsers.add_parser("list", help="List students and public IPs of all VM instances.")
@@ -160,16 +186,14 @@ def main():
 
     # Create command
     create_parser = subparsers.add_parser("create", help="Create VM instances from a file.")
-    create_parser.add_argument(
-        "--no-wait", action="store_true", help="Don't wait for instance creation to complete."
-    )
+    add_wait_flag(create_parser)
     def create_command(args, project_id, compute):
         with open(SSH_KEY_FILE, "r", encoding="utf-8") as f:
             ssh_key = f.read().strip()
         with open(STUDENT_LIST_FILE, "r", encoding="utf-8") as f:
             for line in f:
                 number, owner, zone = line.strip().split(",")
-                create_machine(project_id, compute, number, zone, owner, not args.no_wait, ssh_key)
+                create_machine(project_id, compute, number, zone, owner, args.wait, ssh_key)
     create_parser.set_defaults(func=create_command)
 
     # Stop-all command
@@ -178,7 +202,8 @@ def main():
 
     # Delete-all command
     delete_parser = subparsers.add_parser("delete", help="Delete all VM instances.")
-    delete_parser.set_defaults(func=lambda args, proj, comp: delete_all_machines(proj, comp))
+    add_wait_flag(delete_parser)
+    delete_parser.set_defaults(func=lambda args, proj, comp: delete_all_machines(proj, comp, args.wait))
 
     args = parser.parse_args()
     _, project_id = google.auth.default()
