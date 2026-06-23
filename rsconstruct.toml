@@ -15,3 +15,18 @@ src_dirs = ["src"]
 
 [processor.tidy]
 src_dirs = ["src"]
+
+# Render the tera.templates/ files (README.md, requirements.thawed.txt) from
+# the config python files they load. Re-render whenever any of these change.
+[processor.tera]
+dep_inputs = [
+    "config/project.py",
+    "config/personal.py",
+    "config/python.py",
+    "config/version.py",
+    "config/shared.py",
+]
+
+[analyzer.tera]
+
+[analyzer.markdown]
