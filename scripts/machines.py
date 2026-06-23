@@ -84,9 +84,41 @@ def print_machines_table(data):
     for owner, ip in rows:
         print(f"{owner:<{owner_width}}  {ip:<{ip_width}}")
 
-def create_machine(project_id, compute, number, zone, owner, wait, ssh_key):
+# The three ways of waiting for a batch of asynchronous zone operations.
+#   "none"  - fire every operation and return immediately, waiting for none.
+#   "each"  - fire each operation and wait for it to finish before firing the
+#             next one (serial; slowest, but easiest to reason about).
+#   "all"   - fire every operation up front, then wait for all of them to
+#             finish (parallel; the default and usually the fastest).
+WAIT_NONE = "none"
+WAIT_EACH = "each"
+WAIT_ALL = "all"
+
+def wait_for_operation(project_id, compute, zone, op_name):
     """
-    Creates a single virtual machine instance.
+    Blocks until a single zone operation finishes, raising on error.
+    """
+    while True:
+        result = compute.zoneOperations().get(
+            project=project_id, zone=zone, operation=op_name
+        ).execute()
+        if result["status"] == "DONE":
+            if "error" in result:
+                raise ValueError(result["error"])
+            return
+        time.sleep(1)
+
+def wait_for_operations(project_id, compute, operations):
+    """
+    Blocks until every (zone, op_name) operation in the list finishes.
+    """
+    for zone, op_name in operations:
+        wait_for_operation(project_id, compute, zone, op_name)
+
+def create_machine(project_id, compute, number, zone, owner, ssh_key):
+    """
+    Fires off creation of a single virtual machine instance and returns the
+    (zone, operation-name) pair for the insert operation. Does not wait.
     """
     print(f"Creating instance-{number} in {zone} for {owner}...")
     config = {
@@ -108,38 +140,43 @@ def create_machine(project_id, compute, number, zone, owner, wait, ssh_key):
         "labels": {"owner": owner},
     }
     operation = compute.instances().insert(project=project_id, zone=zone, body=config).execute()
+    return (zone, operation["name"])
 
-    if wait:
-        while True:
-            result = compute.zoneOperations().get(
-                project=project_id, zone=zone, operation=operation["name"]
-            ).execute()
-            if result["status"] == "DONE":
-                if "error" in result:
-                    raise ValueError(result["error"])
-                print(f"Instance instance-{number} created successfully.")
-                break
-            time.sleep(1)
-
-def stop_all_machines(project_id, compute):
+def stop_all_machines(project_id, compute, wait_mode):
     """
     Stops all running compute instances in the project.
+
+    wait_mode (WAIT_NONE / WAIT_EACH / WAIT_ALL) controls how stop operations
+    are waited on; see the WAIT_* constants.
     """
     instances = compute.instances().aggregatedList(project=project_id).execute()
+    operations = []
     for zone, zone_data in instances.get("items", {}).items():
         zone_name = zone.split("/")[-1]
         for instance in zone_data.get("instances", []):
             if instance["status"] == "RUNNING":
                 print(f"Stopping {instance['name']} in {zone_name}...")
-                compute.instances().stop(
+                operation = compute.instances().stop(
                     project=project_id, zone=zone_name, instance=instance["name"]
                 ).execute()
+                if wait_mode == WAIT_EACH:
+                    wait_for_operation(project_id, compute, zone_name, operation["name"])
+                else:
+                    operations.append((zone_name, operation["name"]))
             else:
                 print(f"Skipping {instance['name']} in {zone_name} (status: {instance['status']})")
 
-def delete_all_machines(project_id, compute, wait):
+    if wait_mode == WAIT_ALL:
+        wait_for_operations(project_id, compute, operations)
+
+def delete_all_machines(project_id, compute, wait_mode):
     """
     Deletes all compute instances in the project.
+
+    wait_mode (WAIT_NONE / WAIT_EACH / WAIT_ALL) controls how delete operations
+    are waited on; see the WAIT_* constants. Waiting matters here because
+    deletes are asynchronous: without it a subsequent `list` may still report
+    the instances being deleted.
     """
     if input("This will delete ALL instances. Are you sure? (y/n): ").lower() != 'y':
         print("Aborted.")
@@ -153,21 +190,13 @@ def delete_all_machines(project_id, compute, wait):
             operation = compute.instances().delete(
                 project=project_id, zone=zone_name, instance=instance["name"]
             ).execute()
-            operations.append((zone_name, operation["name"]))
+            if wait_mode == WAIT_EACH:
+                wait_for_operation(project_id, compute, zone_name, operation["name"])
+            else:
+                operations.append((zone_name, operation["name"]))
 
-    if wait:
-        # Deletes are asynchronous; wait for each operation to finish so that a
-        # subsequent `list` doesn't still report the instances being deleted.
-        for zone_name, op_name in operations:
-            while True:
-                result = compute.zoneOperations().get(
-                    project=project_id, zone=zone_name, operation=op_name
-                ).execute()
-                if result["status"] == "DONE":
-                    if "error" in result:
-                        raise ValueError(result["error"])
-                    break
-                time.sleep(1)
+    if wait_mode == WAIT_ALL:
+        wait_for_operations(project_id, compute, operations)
 
 # Cache of per-region CPUS quota limit, keyed by region name. Populated lazily
 # by zone_machine_limit so zones sharing a region don't re-fetch it.
@@ -232,20 +261,97 @@ def show_input_sample():
     for owner in owners:
         print(owner)
 
+def create_command(args, project_id, compute):
+    """
+    Creates one VM per owner in the student list, allocating owners to zones up
+    to each zone's machine limit, and waits according to args.wait_mode.
+    """
+    with open(SSH_KEY_FILE, "r", encoding="utf-8") as f:
+        ssh_key = f.read().strip()
+    with open(STUDENT_LIST_FILE, "r", encoding="utf-8") as f:
+        owners = [line.strip() for line in f if line.strip()]
+
+    # Check owner uniqueness BEFORE creating anything, so we fail fast
+    # instead of partway through creating machines.
+    seen = set()
+    duplicates = set()
+    for owner in owners:
+        if owner in seen:
+            duplicates.add(owner)
+        seen.add(owner)
+    if duplicates:
+        raise ValueError(
+            f"Duplicate owner(s) in {STUDENT_LIST_FILE}: "
+            f"{', '.join(sorted(duplicates))}"
+        )
+
+    # Allocate owners to zones by walking ALLOWED_ZONES in order, filling
+    # each zone up to its per-zone machine limit before moving to the next.
+    # The whole allocation is computed BEFORE creating anything so we fail
+    # fast if there isn't enough total capacity.
+    assignments = []  # (owner, zone), in file order
+    remaining = list(owners)
+    for zone in ALLOWED_ZONES:
+        if not remaining:
+            break
+        limit = zone_machine_limit(project_id, compute, zone)
+        if limit is None:
+            continue
+        take, remaining = remaining[:limit], remaining[limit:]
+        assignments.extend((owner, zone) for owner in take)
+    if remaining:
+        capacity = sum(
+            limit
+            for zone in ALLOWED_ZONES
+            if (limit := zone_machine_limit(project_id, compute, zone)) is not None
+        )
+        raise ValueError(
+            f"Not enough capacity in allowed zones for {len(owners)} machine(s): "
+            f"total capacity is {capacity} across {', '.join(ALLOWED_ZONES)}. "
+            f"Owner(s) left unassigned: {', '.join(remaining)}"
+        )
+
+    # The instance number is derived from the line position in the file.
+    # Fire each insert; in WAIT_EACH mode block on it before the next, in
+    # WAIT_ALL mode collect the operations and wait for all at the end, and
+    # in WAIT_NONE mode never wait.
+    operations = []
+    for number, (owner, zone) in enumerate(assignments):
+        zone_name, op_name = create_machine(
+            project_id, compute, number, zone, owner, ssh_key
+        )
+        if args.wait_mode == WAIT_EACH:
+            wait_for_operation(project_id, compute, zone_name, op_name)
+            print(f"Instance instance-{number} created successfully.")
+        else:
+            operations.append((zone_name, op_name))
+    if args.wait_mode == WAIT_ALL:
+        wait_for_operations(project_id, compute, operations)
+
+def add_wait_flag(subparser):
+    """
+    Adds the mutually-exclusive --wait-all / --wait-each / --no-wait flags
+    (default WAIT_ALL) to a subparser, stored in args.wait_mode.
+    """
+    group = subparser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--wait-all", dest="wait_mode", action="store_const", const=WAIT_ALL,
+        default=WAIT_ALL,
+        help="Fire all operations, then wait for all of them (default).",
+    )
+    group.add_argument(
+        "--wait-each", dest="wait_mode", action="store_const", const=WAIT_EACH,
+        help="Wait for each operation to finish before starting the next.",
+    )
+    group.add_argument(
+        "--no-wait", dest="wait_mode", action="store_const", const=WAIT_NONE,
+        help="Fire all operations and don't wait for any of them.",
+    )
+
 def main():
     """Main entry point and command-line parser."""
     parser = argparse.ArgumentParser(description="Manage GCP compute instances.")
     subparsers = parser.add_subparsers(dest="command", required=True)
-
-    def add_wait_flag(subparser):
-        subparser.add_argument(
-            "--wait", dest="wait", action="store_true", default=True,
-            help="Wait for the operation to complete (default).",
-        )
-        subparser.add_argument(
-            "--no-wait", dest="wait", action="store_false",
-            help="Don't wait for the operation to complete.",
-        )
 
     # List command
     list_parser = subparsers.add_parser("list", help="List students and public IPs of all VM instances.")
@@ -272,65 +378,17 @@ def main():
     # Create command
     create_parser = subparsers.add_parser("create", help="Create VM instances from a file.")
     add_wait_flag(create_parser)
-    def create_command(args, project_id, compute):
-        with open(SSH_KEY_FILE, "r", encoding="utf-8") as f:
-            ssh_key = f.read().strip()
-        with open(STUDENT_LIST_FILE, "r", encoding="utf-8") as f:
-            owners = [line.strip() for line in f if line.strip()]
-
-        # Check owner uniqueness BEFORE creating anything, so we fail fast
-        # instead of partway through creating machines.
-        seen = set()
-        duplicates = set()
-        for owner in owners:
-            if owner in seen:
-                duplicates.add(owner)
-            seen.add(owner)
-        if duplicates:
-            raise ValueError(
-                f"Duplicate owner(s) in {STUDENT_LIST_FILE}: "
-                f"{', '.join(sorted(duplicates))}"
-            )
-
-        # Allocate owners to zones by walking ALLOWED_ZONES in order, filling
-        # each zone up to its per-zone machine limit before moving to the next.
-        # The whole allocation is computed BEFORE creating anything so we fail
-        # fast if there isn't enough total capacity.
-        assignments = []  # (owner, zone), in file order
-        remaining = list(owners)
-        for zone in ALLOWED_ZONES:
-            if not remaining:
-                break
-            limit = zone_machine_limit(project_id, compute, zone)
-            if limit is None:
-                continue
-            take, remaining = remaining[:limit], remaining[limit:]
-            assignments.extend((owner, zone) for owner in take)
-        if remaining:
-            capacity = sum(
-                limit
-                for zone in ALLOWED_ZONES
-                if (limit := zone_machine_limit(project_id, compute, zone)) is not None
-            )
-            raise ValueError(
-                f"Not enough capacity in allowed zones for {len(owners)} machine(s): "
-                f"total capacity is {capacity} across {', '.join(ALLOWED_ZONES)}. "
-                f"Owner(s) left unassigned: {', '.join(remaining)}"
-            )
-
-        # The instance number is derived from the line position in the file.
-        for number, (owner, zone) in enumerate(assignments):
-            create_machine(project_id, compute, number, zone, owner, args.wait, ssh_key)
     create_parser.set_defaults(func=create_command)
 
     # Stop-all command
     stop_parser = subparsers.add_parser("stop", help="Stop all running VM instances.")
-    stop_parser.set_defaults(func=lambda args, proj, comp: stop_all_machines(proj, comp))
+    add_wait_flag(stop_parser)
+    stop_parser.set_defaults(func=lambda args, proj, comp: stop_all_machines(proj, comp, args.wait_mode))
 
     # Delete-all command
     delete_parser = subparsers.add_parser("delete", help="Delete all VM instances.")
     add_wait_flag(delete_parser)
-    delete_parser.set_defaults(func=lambda args, proj, comp: delete_all_machines(proj, comp, args.wait))
+    delete_parser.set_defaults(func=lambda args, proj, comp: delete_all_machines(proj, comp, args.wait_mode))
 
     args = parser.parse_args()
     _, project_id = google.auth.default()

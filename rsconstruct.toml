@@ -1,36 +1,17 @@
-# RSConstruct configuration for gcp-machines.
-#
-# Equivalent of the project Makefile: a multi-language static-analysis harness.
-# Each [processor.*] runs a linter over its source directories.
-#
-#   rsconstruct build      # run all checks (incrementally)
-#   rsconstruct status     # show what is stale
-#   rsconstruct clean      # remove generated outputs
-
-# ─── Python: pylint (src/, scripts/) ───
 [processor.pylint]
 src_dirs = ["src", "scripts"]
 
-# ─── Python: ruff (src/, scripts/) ───
 [processor.ruff]
 src_dirs = ["src", "scripts"]
 
-# ─── Python: mypy (src/, scripts/) ───
 [processor.mypy]
 src_dirs = ["src", "scripts"]
 
-# ─── Bash: shellcheck (scripts/) ───
 [processor.shellcheck]
 src_dirs = ["scripts"]
 
-# ─── HTML: htmlhint + tidy (src/) ───
 [processor.htmlhint]
 src_dirs = ["src"]
 
 [processor.tidy]
 src_dirs = ["src"]
-
-# ─── CSS: stylelint (static/css/) — disabled, matching DO_CSS_CHECK=0 ───
-# [processor.stylelint]
-# src_dirs = ["static/css"]
-# src_extensions = [".css"]
