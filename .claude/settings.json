@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat); [ \"$(printf '%s' \"$input\" | jq -r '.stop_hook_active // false')\" = \"true\" ] && exit 0; out=$(rsconstruct build 2>&1); [ $? -eq 0 ] && exit 0; printf '%s' \"$out\" | jq -Rs '{decision:\"block\", reason:(\"rsconstruct build FAILED. Do not stop until it passes. Fix these errors and rebuild:\\n\" + .)}'",
+            "timeout": 300,
+            "statusMessage": "Verifying rsconstruct build passes..."
+          }
+        ]
+      }
+    ]
+  }
+}

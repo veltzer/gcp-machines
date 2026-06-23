@@ -162,3 +162,7 @@ terraform.tfstate.backup
 # scala
 target/
 project/
+
+# claude code (commit shared .claude/settings.json; ignore personal/local state)
+.claude/settings.local.json
+.claude/projects/
