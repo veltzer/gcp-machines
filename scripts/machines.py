@@ -22,6 +22,14 @@ STUDENT_LIST_FILE = os.path.join(
 # Always read the SSH public key from ~/.ssh/id_machines.pub.
 SSH_KEY_FILE = os.path.expanduser("~/.ssh/id_machines.pub")
 
+# The only zones in which we are allowed to create machines.
+ALLOWED_ZONES = ("us-central1-a", "us-east1-c")
+
+# The machine type used for every instance, and how many vCPUs it consumes.
+# Used both when creating machines and when computing per-zone limits.
+MACHINE_TYPE = "e2-standard-2"
+MACHINE_VCPUS = 2
+
 def get_compute_client():
     """Initializes and returns a Compute Engine API client."""
     credentials, _ = google.auth.default()
@@ -83,7 +91,7 @@ def create_machine(project_id, compute, number, zone, owner, wait, ssh_key):
     print(f"Creating instance-{number} in {zone} for {owner}...")
     config = {
         "name": f"instance-{number}",
-        "machineType": f"zones/{zone}/machineTypes/e2-standard-2",
+        "machineType": f"zones/{zone}/machineTypes/{MACHINE_TYPE}",
         "networkInterfaces": [{
             "network": "global/networks/default",
             "accessConfigs": [{"name": "External NAT", "type": "ONE_TO_ONE_NAT"}],
@@ -161,6 +169,64 @@ def delete_all_machines(project_id, compute, wait):
                     break
                 time.sleep(1)
 
+def machine_limits(project_id, compute):
+    """
+    For every zone in the project, prints the absolute cap on how many
+    machines of our standard machine type can be created there, based on
+    the region's CPU quota.
+
+    CPU quota in GCP is per-region, so each zone is mapped to its region
+    (e.g. "us-central1-a" -> "us-central1"). The cap is the full
+    CPUS quota limit // vCPUs-per-machine, regardless of current usage.
+    """
+    # Cache CPU quota per region so we don't re-fetch for zones that share one.
+    region_cpu_limit = {}
+
+    def cpu_limit_for_region(region):
+        if region not in region_cpu_limit:
+            region_info = compute.regions().get(project=project_id, region=region).execute()
+            cpu_quota = next(
+                (q for q in region_info.get("quotas", []) if q["metric"] == "CPUS"),
+                None,
+            )
+            region_cpu_limit[region] = None if cpu_quota is None else int(cpu_quota["limit"])
+        return region_cpu_limit[region]
+
+    # Gather every zone in the project.
+    zone_names = []
+    request = compute.zones().list(project=project_id)
+    while request is not None:
+        response = request.execute()
+        for zone in response.get("items", []):
+            zone_names.append(zone["name"])
+        request = compute.zones().list_next(previous_request=request, previous_response=response)
+
+    rows = []
+    for zone in sorted(zone_names):
+        region = zone.rsplit("-", 1)[0]
+        cpu_limit = cpu_limit_for_region(region)
+        allowed = "N/A" if cpu_limit is None else str(cpu_limit // MACHINE_VCPUS)
+        rows.append((zone, allowed))
+
+    zone_width = max([len("ZONE")] + [len(z) for z, _ in rows])
+    print(f"{'ZONE':<{zone_width}}  MACHINES ({MACHINE_TYPE})")
+    for zone, allowed in rows:
+        print(f"{zone:<{zone_width}}  {allowed}")
+
+def show_input_sample():
+    """
+    Prints a fake 10-line sample of the input expected by `create`, so the
+    user can see what a valid student list file looks like. Each line is
+    "owner,zone".
+    """
+    owners = [
+        "alice", "bob", "carol", "dave", "eve",
+        "frank", "grace", "heidi", "ivan", "judy",
+    ]
+    for index, owner in enumerate(owners):
+        zone = ALLOWED_ZONES[index % len(ALLOWED_ZONES)]
+        print(f"{owner},{zone}")
+
 def main():
     """Main entry point and command-line parser."""
     parser = argparse.ArgumentParser(description="Manage GCP compute instances.")
@@ -180,9 +246,23 @@ def main():
     list_parser = subparsers.add_parser("list", help="List students and public IPs of all VM instances.")
     list_parser.set_defaults(func=lambda args, proj, comp: print_machines_table(list_machines(proj, comp)))
 
+    # Machine-limits command
+    limits_parser = subparsers.add_parser(
+        "machine-limits",
+        help="Show how many machines can be created in each allowed zone.",
+    )
+    limits_parser.set_defaults(func=lambda args, proj, comp: machine_limits(proj, comp))
+
     # List-full command
     list_full_parser = subparsers.add_parser("list-json", help="List full JSON info about all VM instances.")
     list_full_parser.set_defaults(func=lambda args, proj, comp: json.dump(list_machines_full(proj, comp), fp=sys.stdout))
+
+    # Show-input-sample command
+    sample_parser = subparsers.add_parser(
+        "show-input-sample",
+        help="Show a fake 10-line sample of the input expected by create.",
+    )
+    sample_parser.set_defaults(func=lambda args, proj, comp: show_input_sample())
 
     # Create command
     create_parser = subparsers.add_parser("create", help="Create VM instances from a file.")
@@ -191,9 +271,33 @@ def main():
         with open(SSH_KEY_FILE, "r", encoding="utf-8") as f:
             ssh_key = f.read().strip()
         with open(STUDENT_LIST_FILE, "r", encoding="utf-8") as f:
-            for line in f:
-                number, owner, zone = line.strip().split(",")
-                create_machine(project_id, compute, number, zone, owner, args.wait, ssh_key)
+            entries = [line.strip().split(",") for line in f if line.strip()]
+
+        # Check owner uniqueness BEFORE creating anything, so we fail fast
+        # instead of partway through creating machines.
+        seen = set()
+        duplicates = set()
+        for owner, _zone in entries:
+            if owner in seen:
+                duplicates.add(owner)
+            seen.add(owner)
+        if duplicates:
+            raise ValueError(
+                f"Duplicate owner(s) in {STUDENT_LIST_FILE}: "
+                f"{', '.join(sorted(duplicates))}"
+            )
+
+        # Check that every zone is allowed BEFORE creating anything.
+        bad_zones = sorted({zone for _owner, zone in entries if zone not in ALLOWED_ZONES})
+        if bad_zones:
+            raise ValueError(
+                f"Disallowed zone(s) in {STUDENT_LIST_FILE}: {', '.join(bad_zones)}. "
+                f"Allowed zones are: {', '.join(ALLOWED_ZONES)}"
+            )
+
+        # The instance number is derived from the line position in the file.
+        for number, (owner, zone) in enumerate(entries):
+            create_machine(project_id, compute, number, zone, owner, args.wait, ssh_key)
     create_parser.set_defaults(func=create_command)
 
     # Stop-all command

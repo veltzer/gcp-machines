@@ -13,8 +13,7 @@ import google.auth
 app = flask.Flask(__name__)
 
 
-_, project_id = google.auth.default()
-credentials, _ = google.auth.default()
+credentials, project_id = google.auth.default()
 compute = discovery.build("compute", "v1", credentials=credentials)
 
 

@@ -11,6 +11,14 @@
 [processor.pylint]
 src_dirs = ["src", "scripts"]
 
+# ─── Python: ruff (src/, scripts/) ───
+[processor.ruff]
+src_dirs = ["src", "scripts"]
+
+# ─── Python: mypy (src/, scripts/) ───
+[processor.mypy]
+src_dirs = ["src", "scripts"]
+
 # ─── Bash: shellcheck (scripts/) ───
 [processor.shellcheck]
 src_dirs = ["scripts"]
