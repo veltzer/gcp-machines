@@ -94,10 +94,13 @@ WAIT_NONE = "none"
 WAIT_EACH = "each"
 WAIT_ALL = "all"
 
-def wait_for_operation(project_id, compute, zone, op_name):
+def wait_for_operation(project_id, compute, zone, op_name, action="finish"):
     """
-    Blocks until a single zone operation finishes, raising on error.
+    Blocks until a single zone operation finishes, raising on error. action
+    describes what we're waiting for (e.g. "come up", "be deleted") and is used
+    only for the progress message.
     """
+    print(f"Waiting for 1 machine to {action}...")
     while True:
         result = compute.zoneOperations().get(
             project=project_id, zone=zone, operation=op_name
@@ -108,12 +111,33 @@ def wait_for_operation(project_id, compute, zone, op_name):
             return
         time.sleep(1)
 
-def wait_for_operations(project_id, compute, operations):
+def wait_for_operations(project_id, compute, operations, action="finish"):
     """
-    Blocks until every (zone, op_name) operation in the list finishes.
+    Blocks until every (zone, op_name) operation in the list finishes. action
+    describes what we're waiting for (e.g. "come up", "be deleted") and is used
+    only for the progress message.
     """
+    if not operations:
+        return
+    print(f"Waiting for {len(operations)} machines to {action}...")
     for zone, op_name in operations:
-        wait_for_operation(project_id, compute, zone, op_name)
+        wait_for_operation_quiet(project_id, compute, zone, op_name)
+
+def wait_for_operation_quiet(project_id, compute, zone, op_name):
+    """
+    Blocks until a single zone operation finishes, raising on error, without
+    printing a message. Used by wait_for_operations, which prints its own
+    batch-level message.
+    """
+    while True:
+        result = compute.zoneOperations().get(
+            project=project_id, zone=zone, operation=op_name
+        ).execute()
+        if result["status"] == "DONE":
+            if "error" in result:
+                raise ValueError(result["error"])
+            return
+        time.sleep(1)
 
 def create_machine(project_id, compute, number, zone, owner, ssh_key):
     """
@@ -160,14 +184,14 @@ def stop_all_machines(project_id, compute, wait_mode):
                     project=project_id, zone=zone_name, instance=instance["name"]
                 ).execute()
                 if wait_mode == WAIT_EACH:
-                    wait_for_operation(project_id, compute, zone_name, operation["name"])
+                    wait_for_operation(project_id, compute, zone_name, operation["name"], "stop")
                 else:
                     operations.append((zone_name, operation["name"]))
             else:
                 print(f"Skipping {instance['name']} in {zone_name} (status: {instance['status']})")
 
     if wait_mode == WAIT_ALL:
-        wait_for_operations(project_id, compute, operations)
+        wait_for_operations(project_id, compute, operations, "stop")
 
 def delete_all_machines(project_id, compute, wait_mode):
     """
@@ -191,12 +215,12 @@ def delete_all_machines(project_id, compute, wait_mode):
                 project=project_id, zone=zone_name, instance=instance["name"]
             ).execute()
             if wait_mode == WAIT_EACH:
-                wait_for_operation(project_id, compute, zone_name, operation["name"])
+                wait_for_operation(project_id, compute, zone_name, operation["name"], "be deleted")
             else:
                 operations.append((zone_name, operation["name"]))
 
     if wait_mode == WAIT_ALL:
-        wait_for_operations(project_id, compute, operations)
+        wait_for_operations(project_id, compute, operations, "be deleted")
 
 # Cache of per-region CPUS quota limit, keyed by region name. Populated lazily
 # by zone_machine_limit so zones sharing a region don't re-fetch it.
@@ -321,12 +345,12 @@ def create_command(args, project_id, compute):
             project_id, compute, number, zone, owner, ssh_key
         )
         if args.wait_mode == WAIT_EACH:
-            wait_for_operation(project_id, compute, zone_name, op_name)
+            wait_for_operation(project_id, compute, zone_name, op_name, "come up")
             print(f"Instance instance-{number} created successfully.")
         else:
             operations.append((zone_name, op_name))
     if args.wait_mode == WAIT_ALL:
-        wait_for_operations(project_id, compute, operations)
+        wait_for_operations(project_id, compute, operations, "come up")
 
 def add_wait_flag(subparser):
     """
