@@ -247,6 +247,14 @@ def zone_machine_limit(project_id, compute, zone):
     cpu_limit = _REGION_CPU_LIMIT_CACHE[region]
     return None if cpu_limit is None else cpu_limit // MACHINE_VCPUS
 
+def list_regions(project_id, compute):
+    """
+    Lists and prints the names of all available Google Cloud regions.
+    """
+    regions = compute.regions().list(project=project_id).execute()
+    for region in regions["items"]:
+        print(region["name"])
+
 def machine_limits(project_id, compute):
     """
     For every zone in the project, prints the absolute cap on how many
@@ -387,6 +395,13 @@ def main():
         help="Show how many machines can be created in each allowed zone.",
     )
     limits_parser.set_defaults(func=lambda args, proj, comp: machine_limits(proj, comp))
+
+    # List-regions command
+    regions_parser = subparsers.add_parser(
+        "list-regions",
+        help="List all available GCP regions.",
+    )
+    regions_parser.set_defaults(func=lambda args, proj, comp: list_regions(proj, comp))
 
     # List-full command
     list_full_parser = subparsers.add_parser("list-json", help="List full JSON info about all VM instances.")
