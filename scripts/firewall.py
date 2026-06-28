@@ -4,10 +4,30 @@ Manage firewall rules for a GCP project.
 This script can be used to create firewall rules to open specific ports or all ports for all instances.
 """
 
+import sys
 import argparse
 import google.auth
 from googleapiclient import discovery
 from googleapiclient.errors import HttpError
+
+def require_default_account(credentials):
+    """
+    Refuses to run unless we are authenticating as the default (personal)
+    account rather than a service account.
+
+    This project is administered as the project owner (the default account);
+    the service account is only for the deployed app. Service-account
+    credentials carry a service_account_email; user (default) credentials do
+    not.
+    """
+    sa_email = getattr(credentials, "service_account_email", None)
+    if sa_email is not None:
+        sys.exit(
+            f"Refusing to run as service account '{sa_email}'.\n"
+            "This script must run as your default (personal) account.\n"
+            "Set gcp_identity=default in .gcp.conf (or unset "
+            "GOOGLE_APPLICATION_CREDENTIALS / open a fresh shell), then re-run."
+        )
 
 def get_compute_client():
     """Initializes and returns a Compute Engine API client."""
@@ -69,7 +89,8 @@ def main():
     if args.port and args.all:
         parser.error("You cannot specify both --port and --all.")
 
-    _, project_id = google.auth.default()
+    credentials, project_id = google.auth.default()
+    require_default_account(credentials)
     compute = get_compute_client()
 
     if args.all:
