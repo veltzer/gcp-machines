@@ -243,7 +243,7 @@ def delete_all_machines(project_id, compute, wait_mode):
 
 # Cache of per-region CPUS quota limit, keyed by region name. Populated lazily
 # by zone_machine_limit so zones sharing a region don't re-fetch it.
-_REGION_CPU_LIMIT_CACHE = {}
+_REGION_CPU_LIMIT_CACHE: dict[str, int | None] = {}
 
 def zone_machine_limit(project_id, compute, zone):
     """
