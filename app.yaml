@@ -3,5 +3,12 @@ entrypoint: gunicorn -b :$PORT src.main:app
 handlers:
 - url: /.*
   script: auto
+  secure: always
 automatic_scaling:
   max_instances: 2
+# Optional shared secret protecting the app. Uncomment and set to a long
+# random string, then hand students the link:
+#   https://<your-app-url>/?token=<the value>
+# For real per-user authentication put the app behind Identity-Aware Proxy.
+# env_variables:
+#   ACCESS_TOKEN: "change-me"

@@ -33,6 +33,8 @@ def main():
         "datastore.googleapis.com",
         "gmail.googleapis.com",
         "cloudquotas.googleapis.com",
+        "appengine.googleapis.com",
+        "iap.googleapis.com",
     ]
 
     print(f"Checking services for project: {project_id}")

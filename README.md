@@ -10,7 +10,7 @@ website: https://veltzer.github.io/Machines
 
 ![build](https://github.com/veltzer/Machines/workflows/build/badge.svg)
 
-Machines alows a list of userts to order machine in my account and access them.
+Machines allows a list of users to turn machines in my GCP account on and off and access them.
 I use this to train students.
 
 
