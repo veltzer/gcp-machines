@@ -31,8 +31,10 @@ project moves under an organization.
 
 ## Managing student access
 
-Create `data.gi/student_emails.txt` with one student email per line
-(`python scripts/iap.py show-input-sample` shows the format). The file is
+Add each student's email in `data.gi/students.txt` — one student per line in
+the form `<owner-name> [email]` (`python scripts/iap.py show-input-sample`
+shows the format). The same file drives machine creation
+(`scripts/machines.py`), which uses only the name column. The file is
 git-ignored on purpose: this repository is public and student emails are
 private data.
 
@@ -40,7 +42,7 @@ private data.
 # show whether IAP is on and who has access
 python scripts/iap.py status
 
-# grant everyone in data.gi/student_emails.txt
+# grant every student email in data.gi/students.txt
 python scripts/iap.py sync
 
 # same, and also revoke people that are no longer in the file

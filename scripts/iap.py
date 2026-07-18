@@ -7,9 +7,11 @@ doc/iap.md). Once it is on, this script manages which users may pass through
 it by granting/revoking the "IAP-secured Web App User" role
 (roles/iap.httpsResourceAccessor) on the App Engine IAP resource.
 
-Student emails are read from data.gi/student_emails.txt, one email per line
-(blank lines and lines starting with # are ignored). That file is git-ignored
-on purpose: this repository is public and student emails are private data.
+Students are read from data.gi/students.txt, one per line in the form
+"<owner-name> [email]" (blank lines and lines starting with # are ignored;
+the owner name is used by scripts/machines.py, the email by this script).
+That file is git-ignored on purpose: this repository is public and student
+emails are private data.
 """
 
 import argparse
@@ -19,12 +21,35 @@ import google.auth
 from googleapiclient import discovery
 from googleapiclient.errors import HttpError
 
-# Always read the student emails from data.gi/student_emails.txt at the repo root.
-STUDENT_EMAILS_FILE = os.path.join(
+# Always read the students from data.gi/students.txt at the repo root.
+STUDENTS_FILE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "data.gi",
-    "student_emails.txt",
+    "students.txt",
 )
+
+def read_students():
+    """
+    Reads the students file and returns a list of (owner, email) pairs,
+    where email is None when a line has only the owner name. Blank lines and
+    lines starting with # are ignored.
+    """
+    if not os.path.exists(STUDENTS_FILE):
+        sys.exit(
+            f"Missing {STUDENTS_FILE}\n"
+            "Create it with one student per line: <owner-name> [email]\n"
+            "(see the show-input-sample command). It is git-ignored and stays\n"
+            "out of the public repository."
+        )
+    students = []
+    with open(STUDENTS_FILE, "r", encoding="utf-8") as stream:
+        for line in stream:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split()
+            students.append((parts[0], parts[1] if len(parts) > 1 else None))
+    return students
 
 # The role IAP checks before letting a user through to the app.
 ROLE = "roles/iap.httpsResourceAccessor"
@@ -65,22 +90,18 @@ def iap_resource(project_number, project_id):
 
 def read_student_emails():
     """
-    Reads the student emails file and returns a list of emails. Blank lines
-    and lines starting with # are ignored.
+    Returns the emails from the students file. A clearly invalid email is a
+    fatal error (a typo must not end up granted); a student with no email at
+    all is reported and skipped, so name-only entries do not block a sync.
     """
-    if not os.path.exists(STUDENT_EMAILS_FILE):
-        sys.exit(
-            f"Missing {STUDENT_EMAILS_FILE}\n"
-            "Create it with one student email per line "
-            "(see the show-input-sample command).\n"
-            "It is git-ignored and will stay out of the public repository."
-        )
     emails = []
-    with open(STUDENT_EMAILS_FILE, "r", encoding="utf-8") as stream:
-        for line in stream:
-            line = line.strip()
-            if line and not line.startswith("#"):
-                emails.append(line)
+    for owner, email in read_students():
+        if email is None:
+            print(f"No email for '{owner}' in {STUDENTS_FILE}; skipping.")
+        elif "@" not in email:
+            sys.exit(f"Invalid email '{email}' for '{owner}' in {STUDENTS_FILE}.")
+        else:
+            emails.append(email)
     return emails
 
 def get_policy(iap, resource):
@@ -276,11 +297,11 @@ def consent_create(iap, project_number, title, email):
 
 def show_input_sample():
     """
-    Prints a sample of the input expected in data.gi/student_emails.txt.
+    Prints a sample of the input expected in data.gi/students.txt.
     """
-    print("# one student email per line; # starts a comment")
+    print("# <owner-name> [email]; # starts a comment")
     for name in ("alice", "bob", "carol"):
-        print(f"{name}@gmail.com")
+        print(f"{name} {name}@gmail.com")
 
 def main():
     """Main entry point and command-line parser."""
@@ -304,7 +325,7 @@ def main():
     # Sync command
     sync_parser = subparsers.add_parser(
         "sync",
-        help=f"Grant access to every email in {STUDENT_EMAILS_FILE}.",
+        help=f"Grant access to every student email in {STUDENTS_FILE}.",
     )
     sync_parser.add_argument(
         "--prune",

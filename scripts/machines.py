@@ -12,12 +12,37 @@ import time
 import google.auth
 from googleapiclient import discovery
 
-# Always read the student list from data.gi/student_list.txt at the repo root.
-STUDENT_LIST_FILE = os.path.join(
+# Always read the student list from data.gi/students.txt at the repo root.
+# Each line is "<owner-name> [email]"; this script only uses the owner name,
+# the email column is used by scripts/iap.py for web access grants.
+STUDENTS_FILE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "data.gi",
-    "student_list.txt",
+    "students.txt",
 )
+
+def read_students():
+    """
+    Reads the students file and returns a list of (owner, email) pairs,
+    where email is None when a line has only the owner name. Blank lines and
+    lines starting with # are ignored.
+    """
+    if not os.path.exists(STUDENTS_FILE):
+        sys.exit(
+            f"Missing {STUDENTS_FILE}\n"
+            "Create it with one student per line: <owner-name> [email]\n"
+            "(see the show-input-sample command). It is git-ignored and stays\n"
+            "out of the public repository."
+        )
+    students = []
+    with open(STUDENTS_FILE, "r", encoding="utf-8") as stream:
+        for line in stream:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split()
+            students.append((parts[0], parts[1] if len(parts) > 1 else None))
+    return students
 
 # Always read the SSH public key from ~/.ssh/id_machines.pub.
 SSH_KEY_FILE = os.path.expanduser("~/.ssh/id_machines.pub")
@@ -301,16 +326,19 @@ def machine_limits(project_id, compute):
 
 def show_input_sample():
     """
-    Prints a fake 10-line sample of the input expected by `create`, so the
-    user can see what a valid student list file looks like. Each line is a
-    single owner name; zones are assigned automatically at create time.
+    Prints a fake 10-line sample of the input expected in the students file,
+    so the user can see what a valid file looks like. Each line is an owner
+    name optionally followed by the student's email (this script uses only
+    the name; the email is used by scripts/iap.py). Zones are assigned
+    automatically at create time.
     """
+    print("# <owner-name> [email]; # starts a comment")
     owners = [
         "alice", "bob", "carol", "dave", "eve",
         "frank", "grace", "heidi", "ivan", "judy",
     ]
     for owner in owners:
-        print(owner)
+        print(f"{owner} {owner}@gmail.com")
 
 def create_command(args, project_id, compute):
     """
@@ -319,8 +347,7 @@ def create_command(args, project_id, compute):
     """
     with open(SSH_KEY_FILE, "r", encoding="utf-8") as f:
         ssh_key = f.read().strip()
-    with open(STUDENT_LIST_FILE, "r", encoding="utf-8") as f:
-        owners = [line.strip() for line in f if line.strip()]
+    owners = [owner for owner, _email in read_students()]
 
     # Check owner uniqueness BEFORE creating anything, so we fail fast
     # instead of partway through creating machines.
@@ -332,7 +359,7 @@ def create_command(args, project_id, compute):
         seen.add(owner)
     if duplicates:
         raise ValueError(
-            f"Duplicate owner(s) in {STUDENT_LIST_FILE}: "
+            f"Duplicate owner(s) in {STUDENTS_FILE}: "
             f"{', '.join(sorted(duplicates))}"
         )
 
