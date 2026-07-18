@@ -70,6 +70,7 @@ def load_app(environ=None):
     fake_credentials = unittest.mock.Mock()
     with unittest.mock.patch.dict(os.environ, environ or {}, clear=True), \
             unittest.mock.patch("google.auth.default", return_value=(fake_credentials, "test-project")), \
+            unittest.mock.patch("google.cloud.datastore.Client", return_value=unittest.mock.MagicMock()), \
             unittest.mock.patch("googleapiclient.discovery.build", return_value=fake_compute):
         sys.modules.pop("src.main", None)
         module = importlib.import_module("src.main")
@@ -77,9 +78,28 @@ def load_app(environ=None):
     return module, fake_compute
 
 
-def set_instance_status(fake_compute, status):
+class FakeStudent(dict):
+    """A Datastore student entity: a dict with a key carrying the email."""
+
+    def __init__(self, email, owner):
+        super().__init__(owner=owner)
+        self.key = unittest.mock.Mock()
+        self.key.name = email
+
+
+def set_mapping(module, mapping):
+    """Makes the app's fake Datastore client return the given email -> owner mapping."""
+    module.datastore_client.query.return_value.fetch.return_value = [
+        FakeStudent(email, owner) for email, owner in mapping.items()
+    ]
+
+
+def set_instance_status(fake_compute, status, owner=None):
     instances = fake_compute.instances.return_value
-    instances.get.return_value.execute.return_value = {"status": status}
+    instance = {"status": status}
+    if owner is not None:
+        instance["labels"] = {"owner": owner}
+    instances.get.return_value.execute.return_value = instance
     return instances
 
 
@@ -163,6 +183,89 @@ def test_root_shows_iap_user():
     assert "Signed in as keren@gmail.com" in body
     # the logout link clears the IAP session cookie
     assert "gcp-iap-mode=CLEAR_LOGIN_COOKIE" in body
+
+
+KEREN = {"X-Goog-Authenticated-User-Email": "accounts.google.com:keren@gmail.com"}
+
+
+def test_student_sees_only_their_machine():
+    module, _fake_compute = load_app()
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    client = module.app.test_client()
+    body = client.get("/", headers=KEREN).get_data(as_text=True)
+    assert "1.2.3.4" in body
+    # the other machines (owner unknown / raz) are not shown
+    assert "unknown" not in body
+    assert "raz" not in body
+
+
+def test_student_without_machine_sees_none():
+    module, _fake_compute = load_app()
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    client = module.app.test_client()
+    body = client.get(
+        "/",
+        headers={"X-Goog-Authenticated-User-Email": "accounts.google.com:stranger@gmail.com"},
+    ).get_data(as_text=True)
+    assert "No machine is assigned to you" in body
+    assert "1.2.3.4" not in body
+
+
+def test_admin_sees_all_machines():
+    module, _fake_compute = load_app({"ADMIN_EMAILS": "admin@gmail.com"})
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    client = module.app.test_client()
+    body = client.get(
+        "/",
+        headers={"X-Goog-Authenticated-User-Email": "accounts.google.com:admin@gmail.com"},
+    ).get_data(as_text=True)
+    assert "keren" in body
+    assert "raz" in body
+    assert "unknown" in body
+
+
+def test_student_can_toggle_own_machine():
+    module, fake_compute = load_app()
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    instances = set_instance_status(fake_compute, "RUNNING", owner="keren")
+    client = module.app.test_client()
+    response = client.post(
+        "/process",
+        data={"name": "machine-keren", "zone": "us-central1-a"},
+        headers=KEREN,
+    )
+    assert response.status_code == 200
+    instances.suspend.assert_called_once()
+
+
+def test_student_cannot_toggle_others_machine():
+    module, fake_compute = load_app()
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    instances = set_instance_status(fake_compute, "RUNNING", owner="raz")
+    client = module.app.test_client()
+    response = client.post(
+        "/process",
+        data={"name": "machine-raz", "zone": "us-central1-a"},
+        headers=KEREN,
+    )
+    assert response.status_code == 403
+    instances.suspend.assert_not_called()
+    instances.resume.assert_not_called()
+    instances.start.assert_not_called()
+
+
+def test_student_cannot_toggle_unowned_machine():
+    module, fake_compute = load_app()
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    instances = set_instance_status(fake_compute, "SUSPENDED")
+    client = module.app.test_client()
+    response = client.post(
+        "/process",
+        data={"name": "machine-bare", "zone": "us-central1-a"},
+        headers=KEREN,
+    )
+    assert response.status_code == 403
+    instances.resume.assert_not_called()
 
 
 def test_token_not_required_by_default():

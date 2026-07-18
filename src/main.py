@@ -6,10 +6,12 @@ main application
 
 import hmac
 import os
+import time
 
 import flask
 import markupsafe
 import google.auth
+from google.cloud import datastore
 from googleapiclient import discovery
 from googleapiclient.errors import HttpError
 
@@ -26,6 +28,46 @@ compute = discovery.build("compute", "v1", credentials=credentials)
 # (see doc/iap.md); once IAP is enabled this token is redundant and can stay
 # unset.
 ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN")
+
+# Admins see and control every machine; students only their own. Comma
+# separated emails, set in app.yaml.
+ADMIN_EMAILS = {
+    email.strip().lower()
+    for email in os.environ.get("ADMIN_EMAILS", "").split(",")
+    if email.strip()
+}
+
+# The student email -> machine owner mapping lives in Datastore (kind
+# "student", key = email), pushed there by `scripts/iap.py sync`. It is
+# cached briefly so roster changes show up without a redeploy while not
+# querying Datastore on every request.
+datastore_client = datastore.Client(project=project_id)
+MAPPING_TTL_SECONDS = 60
+_mapping_cache = {"expiry": 0.0, "mapping": {}}
+
+
+def email_to_owner():
+    """ email -> owner mapping from Datastore, cached for a short while """
+    now = time.monotonic()
+    if now >= _mapping_cache["expiry"]:
+        try:
+            _mapping_cache["mapping"] = {
+                entity.key.name: entity["owner"]
+                for entity in datastore_client.query(kind="student").fetch()
+            }
+        except Exception:  # pylint: disable=broad-exception-caught
+            # keep serving the last known mapping over a Datastore hiccup
+            pass
+        _mapping_cache["expiry"] = now + MAPPING_TTL_SECONDS
+    return _mapping_cache["mapping"]
+
+
+def is_admin(email):
+    """
+    Admins see and control all machines. A None email means the request came
+    without IAP (local development), which behaves as admin.
+    """
+    return email is None or email.lower() in ADMIN_EMAILS
 
 
 def get_signed_in_user():
@@ -97,9 +139,13 @@ def get_machines():
 
 @app.route("/", methods=["GET"])
 def root():
-    """ url to see all machines """
+    """ url to see the machines the signed-in user may control """
+    user = get_signed_in_user()
     machines = get_machines()
-    return flask.render_template("machines.html", machines=machines, user=get_signed_in_user())
+    if not is_admin(user):
+        owner = email_to_owner().get(user.lower())
+        machines = [m for m in machines if owner is not None and m["owner"] == owner]
+    return flask.render_template("machines.html", machines=machines, user=user)
 
 
 @app.route("/process", methods=["POST"])
@@ -111,6 +157,11 @@ def process():
     # decide what to do from the live status, not from whatever the browser
     # showed when the page was last rendered
     instance = compute.instances().get(project=project_id, zone=zone, instance=name).execute()
+    user = get_signed_in_user()
+    if not is_admin(user):
+        owner = instance.get("labels", {}).get("owner")
+        if owner is None or email_to_owner().get(user.lower()) != owner:
+            flask.abort(403, "This machine is not yours.")
     status = instance["status"]
     if status == "SUSPENDED":
         compute.instances().resume(project=project_id, zone=zone, instance=name).execute()

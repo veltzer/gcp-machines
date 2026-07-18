@@ -56,6 +56,20 @@ python scripts/iap.py revoke someone@gmail.com
 Students need a Google account (any Gmail address works) and must use the
 same address you granted.
 
+## Per-student filtering
+
+The app shows each signed-in student only the machine whose `owner` label
+matches their email; a student with no mapping sees an empty list. Emails
+listed in the `ADMIN_EMAILS` environment variable (set in `app.yaml`) see
+and control everything, as do requests that carry no IAP identity (local
+development).
+
+The email-to-owner mapping lives in Datastore (kind `student`, key = email).
+`python scripts/iap.py sync` pushes it there from `data.gi/students.txt`
+while updating the IAP grants, and the app picks up changes within about a
+minute — after a roster change, `sync` is the only command needed, no
+redeploy.
+
 ## Notes
 
 - The app shows "Signed in as ..." by reading the

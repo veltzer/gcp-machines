@@ -47,6 +47,11 @@
 				</a>
 			</p>
 		{% endif %}
+		{% if machines|length == 0 %}
+			<p>
+				No machine is assigned to you. Contact your instructor.
+			</p>
+		{% endif %}
 		<div class="machine-container">
 			{% for machine in machines %}
 				<div class="machine-row">

@@ -6,6 +6,10 @@ handlers:
   secure: always
 automatic_scaling:
   max_instances: 2
+# Admins see and control every machine; students see only the machine whose
+# owner label maps to their email in Datastore (pushed by scripts/iap.py sync).
+env_variables:
+  ADMIN_EMAILS: "mark.veltzer@gmail.com"
 # Optional shared secret protecting the app. Uncomment and set to a long
 # random string, then hand students the link:
 #   https://<your-app-url>/?token=<the value>

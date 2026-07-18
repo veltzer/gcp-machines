@@ -18,6 +18,7 @@ import argparse
 import os
 import sys
 import google.auth
+from google.cloud import datastore
 from googleapiclient import discovery
 from googleapiclient.errors import HttpError
 
@@ -201,13 +202,45 @@ def revoke(iap, resource, emails):
     for email in removed:
         print(f"Revoked: {email}")
 
-def sync(iap, resource, prune):
+def push_mapping(project_id):
     """
-    Grants access to every email in the student emails file. With prune, also
+    Replaces the email -> owner mapping in Datastore (kind "student", key =
+    email) with the students file content. The app reads this mapping to
+    decide which machines each signed-in student may see; it picks up
+    changes within about a minute, no redeploy needed.
+    """
+    client = datastore.Client(project=project_id)
+    wanted = {
+        email.lower(): owner
+        for owner, email in read_students()
+        if email is not None and "@" in email
+    }
+    removed = 0
+    for entity in client.query(kind="student").fetch():
+        if entity.key.name not in wanted:
+            client.delete(entity.key)
+            removed += 1
+    for email, owner in wanted.items():
+        entity = datastore.Entity(key=client.key("student", email))
+        entity["owner"] = owner
+        client.put(entity)
+    print(f"Datastore mapping updated: {len(wanted)} students, {removed} stale entries removed.")
+
+def sync(iap, resource, prune, project_id):
+    """
+    Grants access to every email in the students file and pushes the
+    email -> owner mapping to Datastore for the app. With prune, also
     revokes user: members that are not in the file (other member types, like
     serviceAccount: or domain:, are never touched).
     """
     emails = read_student_emails()
+    sync_grants(iap, resource, prune, emails)
+    push_mapping(project_id)
+
+def sync_grants(iap, resource, prune, emails):
+    """
+    Makes the IAP role grants match the given emails; see sync.
+    """
     policy = get_policy(iap, resource)
     members = get_role_binding(policy)
     wanted = {f"user:{email}" for email in emails}
@@ -332,7 +365,7 @@ def main():
         action="store_true",
         help="Also revoke user grants that are not in the file.",
     )
-    sync_parser.set_defaults(func=lambda args, ctx: sync(ctx["iap"], ctx["resource"], args.prune))
+    sync_parser.set_defaults(func=lambda args, ctx: sync(ctx["iap"], ctx["resource"], args.prune, ctx["project_id"]))
 
     # Consent-status command
     consent_status_parser = subparsers.add_parser(
