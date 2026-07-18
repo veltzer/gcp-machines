@@ -42,6 +42,9 @@
 		{% if user %}
 			<p class="signed-in">
 				Signed in as {{user}}
+				<a href="/?gcp-iap-mode=CLEAR_LOGIN_COOKIE">
+					Logout
+				</a>
 			</p>
 		{% endif %}
 		<div class="machine-container">

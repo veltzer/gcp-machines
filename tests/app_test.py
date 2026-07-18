@@ -34,6 +34,14 @@ AGGREGATED_RESPONSE = {
                     "zone": "projects/test-project/zones/us-central1-a",
                     "networkInterfaces": [{}],
                 },
+                {
+                    # a stopped machine: shown as STOPPED, not TERMINATED
+                    "name": "machine-raz",
+                    "status": "TERMINATED",
+                    "zone": "projects/test-project/zones/us-central1-a",
+                    "labels": {"owner": "raz"},
+                    "networkInterfaces": [{}],
+                },
             ],
         },
         "zones/us-east1-c": {
@@ -86,6 +94,9 @@ def test_root_lists_machines_and_survives_missing_fields():
     # the machine without labels / external IP degrades gracefully
     assert "unknown" in body
     assert "N/A" in body
+    # stopped machines get the friendly label
+    assert "STOPPED" in body
+    assert "TERMINATED" not in body
 
 
 def test_process_rejects_get():
@@ -148,7 +159,10 @@ def test_root_shows_iap_user():
     client = module.app.test_client()
     response = client.get("/", headers={"X-Goog-Authenticated-User-Email": "accounts.google.com:keren@gmail.com"})
     assert response.status_code == 200
-    assert "Signed in as keren@gmail.com" in response.get_data(as_text=True)
+    body = response.get_data(as_text=True)
+    assert "Signed in as keren@gmail.com" in body
+    # the logout link clears the IAP session cookie
+    assert "gcp-iap-mode=CLEAR_LOGIN_COOKIE" in body
 
 
 def test_token_not_required_by_default():

@@ -81,9 +81,12 @@ def get_machines():
     for number, instance in enumerate(all_instances):
         interfaces = instance.get("networkInterfaces", [])
         access_configs = interfaces[0].get("accessConfigs", []) if interfaces else []
+        # GCP reports a stopped machine as TERMINATED, which reads as if the
+        # machine is gone; show the friendlier name
+        status = instance["status"]
         data.append({
             "name": instance["name"],
-            "status": instance["status"],
+            "status": "STOPPED" if status == "TERMINATED" else status,
             "owner": instance.get("labels", {}).get("owner", "unknown"),
             "ip": access_configs[0].get("natIP", "N/A") if access_configs else "N/A",
             "zone": instance["zone"].split("/")[-1],
