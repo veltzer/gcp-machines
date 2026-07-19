@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
 Manage compute instances in a GCP project.
-This script provides a command-line interface to create, list, stop, and delete virtual machines.
+This script provides a command-line interface to create, list, stop, continue, and delete virtual machines.
 """
 
 import sys
@@ -237,6 +237,33 @@ def stop_all_machines(project_id, compute, wait_mode):
     if wait_mode == WAIT_ALL:
         wait_for_operations(project_id, compute, operations, "stop")
 
+def continue_all_machines(project_id, compute, wait_mode):
+    """
+    Continues (starts) all stopped compute instances in the project.
+
+    wait_mode (WAIT_NONE / WAIT_EACH / WAIT_ALL) controls how start operations
+    are waited on; see the WAIT_* constants.
+    """
+    instances = compute.instances().aggregatedList(project=project_id).execute()
+    operations = []
+    for zone, zone_data in instances.get("items", {}).items():
+        zone_name = zone.split("/")[-1]
+        for instance in zone_data.get("instances", []):
+            if instance["status"] == "TERMINATED":
+                print(f"Continuing {instance['name']} in {zone_name}...")
+                operation = compute.instances().start(
+                    project=project_id, zone=zone_name, instance=instance["name"]
+                ).execute()
+                if wait_mode == WAIT_EACH:
+                    wait_for_operation(project_id, compute, zone_name, operation["name"], "come up")
+                else:
+                    operations.append((zone_name, operation["name"]))
+            else:
+                print(f"Skipping {instance['name']} in {zone_name} (status: {instance['status']})")
+
+    if wait_mode == WAIT_ALL:
+        wait_for_operations(project_id, compute, operations, "come up")
+
 def delete_all_machines(project_id, compute, wait_mode):
     """
     Deletes all compute instances in the project.
@@ -469,6 +496,11 @@ def main():
     stop_parser = subparsers.add_parser("stop", help="Stop all running VM instances.")
     add_wait_flag(stop_parser)
     stop_parser.set_defaults(func=lambda args, proj, comp: stop_all_machines(proj, comp, args.wait_mode))
+
+    # Continue-all command
+    continue_parser = subparsers.add_parser("continue", help="Continue (start) all stopped VM instances.")
+    add_wait_flag(continue_parser)
+    continue_parser.set_defaults(func=lambda args, proj, comp: continue_all_machines(proj, comp, args.wait_mode))
 
     # Delete-all command
     delete_parser = subparsers.add_parser("delete", help="Delete all VM instances.")
