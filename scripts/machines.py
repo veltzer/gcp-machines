@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 """
 Manage compute instances in a GCP project.
-This script provides a command-line interface to create, list, stop, continue, and delete virtual machines.
+This script provides a command-line interface to create, list, stop, continue,
+and delete virtual machines, and to reach them over ssh (connect, tunnel).
 """
 
 import sys
@@ -46,6 +47,14 @@ def read_students():
 
 # Always read the SSH public key from ~/.ssh/id_machines.pub.
 SSH_KEY_FILE = os.path.expanduser("~/.ssh/id_machines.pub")
+
+# The private half of the key whose public half is injected into every instance
+# at creation time (SSH_KEY_FILE above). Used by connect and tunnel.
+SSH_PRIVATE_KEY_FILE = os.path.expanduser("~/.ssh/id_machines")
+
+# The user the ssh-keys metadata is created for, and so the one connect and
+# tunnel log in as by default.
+DEFAULT_USER = "ubuntu"
 
 # The only zones in which we are allowed to create machines.
 ALLOWED_ZONES = ("us-central1-a", "us-east1-c")
@@ -433,6 +442,169 @@ def create_command(args, project_id, compute):
     if args.wait_mode == WAIT_ALL:
         wait_for_operations(project_id, compute, operations, "come up")
 
+# The connect and tunnel commands never write an IP down: a machine is
+# identified by the "owner" label it was created with, and its external IP is
+# read live from the Compute API at the moment of connecting. Suspending and
+# resuming a machine changes its IP, so anything cached would be stale.
+
+def add_target_arguments(subparser):
+    """
+    Adds the arguments shared by every command that ssh-es to a machine: which
+    owner to reach, as which user, and with which key.
+    """
+    subparser.add_argument("owner", help="Owner name of the machine, as in data.gi/students.txt.")
+    subparser.add_argument(
+        "--user",
+        default=DEFAULT_USER,
+        help=f"User to log in as (default: {DEFAULT_USER}).",
+    )
+    subparser.add_argument(
+        "--key",
+        default=None,
+        help=f"Private key to use (default: {SSH_PRIVATE_KEY_FILE}).",
+    )
+
+def ssh_key_path(key):
+    """
+    Returns the private key path to use, defaulting to SSH_PRIVATE_KEY_FILE,
+    and exits with an actionable message if it is not there.
+    """
+    path = os.path.expanduser(key) if key else SSH_PRIVATE_KEY_FILE
+    if not os.path.exists(path):
+        sys.exit(
+            f"No ssh private key at {path}.\n"
+            "This is the private half of the key injected into every\n"
+            f"instance ({SSH_KEY_FILE}). Put it there, or pass --key."
+        )
+    return path
+
+def instance_ip(instance):
+    """
+    Returns the external IP of an instance, or None when it has none (a
+    stopped or suspended machine has no external IP).
+    """
+    interfaces = instance.get("networkInterfaces", [])
+    if not interfaces:
+        return None
+    access_configs = interfaces[0].get("accessConfigs", [])
+    if not access_configs:
+        return None
+    return access_configs[0].get("natIP")
+
+def find_by_owner(project_id, compute, owner):
+    """
+    Returns the instances labelled with the given owner.
+    """
+    return [
+        instance
+        for instance in get_all_instances(project_id, compute)
+        if instance.get("labels", {}).get("owner") == owner
+    ]
+
+def owner_ip(project_id, compute, owner):
+    """
+    Returns the current external IP of the machine belonging to an owner.
+
+    Exits with an actionable message when there is no such machine, when the
+    machine is not running (and so has no IP to connect to), or when the name
+    is ambiguous, rather than handing ssh something that cannot work.
+    """
+    instances = find_by_owner(project_id, compute, owner)
+    if not instances:
+        known = sorted({
+            label
+            for instance in get_all_instances(project_id, compute)
+            if (label := instance.get("labels", {}).get("owner")) is not None
+        })
+        sys.exit(
+            f"No machine labelled owner='{owner}'.\n"
+            + (f"Known owners: {', '.join(known)}" if known
+               else "No machine in the project carries an owner label.")
+        )
+    if len(instances) > 1:
+        names = ", ".join(sorted(instance["name"] for instance in instances))
+        sys.exit(
+            f"{len(instances)} machines are labelled owner='{owner}': {names}.\n"
+            "Owner labels are meant to be unique; fix the labels and retry."
+        )
+    instance = instances[0]
+    ip = instance_ip(instance)
+    if ip is None:
+        status = instance["status"]
+        # a stopped machine reports TERMINATED, which reads as if it is gone
+        friendly = "STOPPED" if status == "TERMINATED" else status
+        sys.exit(
+            f"Machine {instance['name']} (owner '{owner}') is {friendly} and has "
+            "no external IP.\n"
+            "Start it from the web app, or with: python scripts/machines.py continue"
+        )
+    return ip
+
+def strip_separator(extra_args):
+    """
+    Drops the leading "--" argparse.REMAINDER keeps when the user separates
+    pass-through arguments with it, so it is not forwarded to ssh.
+    """
+    if extra_args and extra_args[0] == "--":
+        return extra_args[1:]
+    return extra_args
+
+def parse_ports(spec):
+    """
+    Parses a port specification into a (local_port, remote_port) pair.
+
+    "5602:5601" forwards local 5602 to remote 5601; a bare "5601" uses the
+    same port on both ends.
+    """
+    parts = spec.split(":")
+    if len(parts) > 2:
+        raise argparse.ArgumentTypeError(
+            f"Bad port specification '{spec}'; expected <local>:<remote> or <port>."
+        )
+    ports = []
+    for part in parts:
+        if not part.isdigit() or not 1 <= int(part) <= 65535:
+            raise argparse.ArgumentTypeError(
+                f"Bad port '{part}' in '{spec}'; expected a number in 1-65535."
+            )
+        ports.append(int(part))
+    return (ports[0], ports[-1])
+
+def connect_command(args, project_id, compute):
+    """
+    SSH into a student's machine by owner name, replacing this process with
+    ssh.
+    """
+    ip = owner_ip(project_id, compute, args.owner)
+    command = [
+        "ssh",
+        "-i", ssh_key_path(args.key),
+        f"{args.user}@{ip}",
+    ] + strip_separator(args.ssh_args)
+    print(f"Connecting to {args.owner} at {ip}...", file=sys.stderr)
+    os.execvp(command[0], command)
+
+def tunnel_command(args, project_id, compute):
+    """
+    Opens an SSH port-forward to a student's machine by owner name, replacing
+    this process with ssh.
+    """
+    ip = owner_ip(project_id, compute, args.owner)
+    local_port, remote_port = args.ports
+    command = [
+        "ssh",
+        "-N",
+        "-i", ssh_key_path(args.key),
+        "-L", f"{local_port}:{args.host}:{remote_port}",
+        f"{args.user}@{ip}",
+    ]
+    print(
+        f"Forwarding localhost:{local_port} to {args.host}:{remote_port} "
+        f"on {args.owner} ({ip}); ctrl-c to stop.",
+        file=sys.stderr,
+    )
+    os.execvp(command[0], command)
+
 def add_wait_flag(subparser):
     """
     Adds the mutually-exclusive --wait-all / --wait-each / --no-wait flags
@@ -506,6 +678,54 @@ def main():
     delete_parser = subparsers.add_parser("delete", help="Delete all VM instances.")
     add_wait_flag(delete_parser)
     delete_parser.set_defaults(func=lambda args, proj, comp: delete_all_machines(proj, comp, args.wait_mode))
+
+    # Connect command
+    connect_parser = subparsers.add_parser(
+        "connect",
+        help="SSH into a student's machine by owner name.",
+        description=(
+            "SSH into a student's machine by owner name. The machine is looked "
+            "up by its 'owner' label and reached at its current external IP, so "
+            "a machine that was stopped and continued (and therefore got a new "
+            "IP) is reached without editing anything.\n\n"
+            "    python scripts/machines.py connect mark\n"
+            "    python scripts/machines.py connect mark -- -v"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    add_target_arguments(connect_parser)
+    connect_parser.add_argument(
+        "ssh_args",
+        nargs=argparse.REMAINDER,
+        help="Extra arguments passed to ssh (put them after a -- separator).",
+    )
+    connect_parser.set_defaults(func=connect_command)
+
+    # Tunnel command
+    tunnel_parser = subparsers.add_parser(
+        "tunnel",
+        help="Open an SSH port-forward to a student's machine by owner name.",
+        description=(
+            "Open an SSH port-forward to a student's machine by owner name.\n\n"
+            "    # local 5602 -> the machine's 5601\n"
+            "    python scripts/machines.py tunnel mark 5602:5601\n\n"
+            "    # same port on both ends\n"
+            "    python scripts/machines.py tunnel mark 5601"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    add_target_arguments(tunnel_parser)
+    tunnel_parser.add_argument(
+        "ports",
+        type=parse_ports,
+        help="Ports to forward: <local>:<remote>, or a single port for both ends.",
+    )
+    tunnel_parser.add_argument(
+        "--host",
+        default="localhost",
+        help="Host the remote side connects to, as seen from the machine (default: localhost).",
+    )
+    tunnel_parser.set_defaults(func=tunnel_command)
 
     args = parser.parse_args()
     credentials, project_id = google.auth.default()
