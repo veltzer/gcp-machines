@@ -9,6 +9,7 @@ import sys
 import json
 import argparse
 import os
+import socket
 import time
 import google.auth
 from googleapiclient import discovery
@@ -55,6 +56,13 @@ SSH_PRIVATE_KEY_FILE = os.path.expanduser("~/.ssh/id_machines")
 # The user the ssh-keys metadata is created for, and so the one connect and
 # tunnel log in as by default.
 DEFAULT_USER = "ubuntu"
+
+# The port test-port checks when none is given: the ssh port every machine is
+# expected to answer on, and the one connect and tunnel rely on.
+DEFAULT_PORT = 22
+
+# How long test-port waits for a connection before calling the port closed.
+DEFAULT_PORT_TIMEOUT = 5.0
 
 # The only zones in which we are allowed to create machines.
 ALLOWED_ZONES = ("us-central1-a", "us-east1-c")
@@ -584,6 +592,30 @@ def connect_command(args, project_id, compute):
     print(f"Connecting to {args.owner} at {ip}...", file=sys.stderr)
     os.execvp(command[0], command)
 
+def test_port_command(args, project_id, compute):
+    """
+    Tests whether a port on a student's machine accepts TCP connections,
+    looking the machine up by owner name. Exits non-zero when it does not, so
+    the command can be used in a shell test.
+
+    This says nothing about what is listening, only that something accepted
+    the connection; for ssh (the default port) that is the interesting
+    question, since a freshly created or just-continued machine answers on 22
+    only once it has finished booting.
+    """
+    ip = owner_ip(project_id, compute, args.owner)
+    print(
+        f"Testing port {args.port} on {args.owner} ({ip})...",
+        file=sys.stderr,
+    )
+    try:
+        with socket.create_connection((ip, args.port), timeout=args.timeout):
+            pass
+    except OSError as exception:
+        print(f"{ip}:{args.port} CLOSED ({exception})")
+        sys.exit(1)
+    print(f"{ip}:{args.port} OPEN")
+
 def tunnel_command(args, project_id, compute):
     """
     Opens an SSH port-forward to a student's machine by owner name, replacing
@@ -700,6 +732,40 @@ def main():
         help="Extra arguments passed to ssh (put them after a -- separator).",
     )
     connect_parser.set_defaults(func=connect_command)
+
+    # Test-port command
+    test_port_parser = subparsers.add_parser(
+        "test-port",
+        help="Test whether a port on a student's machine is open.",
+        description=(
+            "Test whether a port on a student's machine accepts TCP "
+            "connections. The machine is looked up by its 'owner' label and "
+            "reached at its current external IP. Exits 0 when the port is "
+            "open and 1 when it is not, so it can be used in a shell test.\n\n"
+            f"    # the ssh port ({DEFAULT_PORT}) by default\n"
+            "    python scripts/machines.py test-port mark\n\n"
+            "    # any other port\n"
+            "    python scripts/machines.py test-port mark --port 8080"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    test_port_parser.add_argument(
+        "owner",
+        help="Owner name of the machine, as in data.gi/students.txt.",
+    )
+    test_port_parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"Port to test (default: {DEFAULT_PORT}, ssh).",
+    )
+    test_port_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_PORT_TIMEOUT,
+        help=f"Seconds to wait for the connection (default: {DEFAULT_PORT_TIMEOUT}).",
+    )
+    test_port_parser.set_defaults(func=test_port_command)
 
     # Tunnel command
     tunnel_parser = subparsers.add_parser(

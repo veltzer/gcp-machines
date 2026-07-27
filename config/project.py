@@ -1,3 +1,4 @@
+""" project definitions """
 name = "Machines"
 name_fancy = "machines"
 description_short = "machines project"
