@@ -1,0 +1,9 @@
+# Repo-specific overlay. Deep-merged over the canonical rsconstruct.toml.
+
+[processor.requirements]
+# `from google.cloud import datastore` lives in a different distribution than
+# the rest of the google namespace package. Import scanning only sees the
+# top-level `google`, which resolves to google-api-python-client, so the
+# datastore distribution has to be declared explicitly or CI installs a
+# requirements.txt that cannot satisfy the import.
+extra = ["google-cloud-datastore"]
