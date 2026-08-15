@@ -5,12 +5,13 @@ This script provides a command-line interface to create, list, stop, continue,
 and delete virtual machines, and to reach them over ssh (connect, tunnel).
 """
 
-import sys
-import json
 import argparse
+import json
 import os
 import socket
+import sys
 import time
+
 import google.auth
 from googleapiclient import discovery
 
@@ -104,7 +105,7 @@ def get_all_instances(project_id, compute):
     request = compute.instances().aggregatedList(project=project_id)
     while request is not None:
         response = request.execute()
-        for _zone, instances_data in response["items"].items():
+        for instances_data in response["items"].values():
             instances = instances_data.get("instances", [])
             all_instances.extend(instances)
         request = compute.instances().aggregatedList_next(

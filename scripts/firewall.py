@@ -4,11 +4,13 @@ Manage firewall rules for a GCP project.
 This script can be used to create firewall rules to open specific ports or all ports for all instances.
 """
 
-import sys
 import argparse
+import sys
+
 import google.auth
 from googleapiclient import discovery
 from googleapiclient.errors import HttpError
+
 
 def require_default_account(credentials):
     """

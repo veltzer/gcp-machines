@@ -9,12 +9,11 @@ import os
 import time
 
 import flask
-import markupsafe
 import google.auth
+import markupsafe
 from google.cloud import datastore
 from googleapiclient import discovery
 from googleapiclient.errors import HttpError
-
 
 app = flask.Flask(__name__)
 
@@ -55,7 +54,7 @@ def email_to_owner():
                 entity.key.name: entity["owner"]
                 for entity in datastore_client.query(kind="student").fetch()
             }
-        except Exception:  # pylint: disable=broad-exception-caught
+        except Exception:  # noqa: BLE001,S110 # pylint: disable=broad-exception-caught
             # keep serving the last known mapping over a Datastore hiccup
             pass
         _mapping_cache["expiry"] = now + MAPPING_TTL_SECONDS
@@ -113,7 +112,7 @@ def get_machines():
     all_instances = []
     while request is not None:
         response = request.execute()
-        for _zone, instances_data in response["items"].items():
+        for instances_data in response["items"].values():
             all_instances.extend(instances_data.get("instances", []))
         request = compute.instances().aggregatedList_next(
                 previous_request=request,
@@ -174,9 +173,11 @@ def process():
         action = "suspend"
     else:
         return (
-            f"Machine {markupsafe.escape(name)} is currently {markupsafe.escape(status)}, "
-            "which means it is already in the middle of a state change."
-            "<br/>Go back, refresh and try again in a minute.",
+            (
+                f"Machine {markupsafe.escape(name)} is currently {markupsafe.escape(status)}, "
+                "which means it is already in the middle of a state change."
+                "<br/>Go back, refresh and try again in a minute."
+            ),
             409,
         )
     return (
@@ -191,11 +192,13 @@ def process():
 def handle_gcp_error(error):
     """ show google api failures as a readable message instead of a stack trace """
     return (
-        f"Google Cloud API call failed: {markupsafe.escape(error.reason)}"
-        "<br/>Go back, refresh and try again.",
+        (
+            f"Google Cloud API call failed: {markupsafe.escape(error.reason)}"
+            "<br/>Go back, refresh and try again."
+        ),
         502,
     )
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", "8080")))

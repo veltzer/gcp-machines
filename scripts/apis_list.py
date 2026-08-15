@@ -6,6 +6,7 @@ Lists all enabled Google Cloud services for the current project.
 import google.auth
 from googleapiclient import discovery
 
+
 def list_enabled_apis():
     """
     Fetches and prints all enabled APIs for the current GCP project.

@@ -17,6 +17,7 @@ emails are private data.
 import argparse
 import os
 import sys
+
 import google.auth
 from google.cloud import datastore
 from googleapiclient import discovery
@@ -139,7 +140,7 @@ def iap_enabled(project_id, credentials):
         appengine = discovery.build("appengine", "v1", credentials=credentials)
         app_info = appengine.apps().get(appsId=project_id).execute()
         return bool(app_info.get("iap", {}).get("enabled", False))
-    except Exception:  # pylint: disable=broad-exception-caught
+    except Exception:  # noqa: BLE001 # pylint: disable=broad-exception-caught
         return None
 
 def status(project_id, iap, resource, credentials):

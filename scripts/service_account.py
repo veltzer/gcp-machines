@@ -18,8 +18,9 @@ Commands:
 """
 
 import argparse
-import os
 import base64
+import os
+
 import google.auth
 from googleapiclient import discovery
 from googleapiclient.errors import HttpError

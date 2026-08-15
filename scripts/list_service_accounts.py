@@ -8,8 +8,10 @@ the project.
 """
 
 import sys
+
 import google.auth
 from googleapiclient import discovery
+
 
 def require_default_account(credentials):
     """

@@ -8,6 +8,7 @@ and "gmail.googleapis.com" are enabled.
 import google.auth
 from googleapiclient import discovery
 
+
 def check_service_status(project_id, service_name, service_usage):
     """
     Checks if a specific service is enabled for the project.
