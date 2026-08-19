@@ -7,3 +7,17 @@
 # datastore distribution has to be declared explicitly or CI installs a
 # requirements.txt that cannot satisfy the import.
 extra = ["google-cloud-datastore"]
+
+# Runtime deps so CI installs what the code imports (pylint/mypy resolve them).
+# Same pattern as demos-cloud-aws; replaces the workflow's hand-run
+# `pip install -r requirements.txt` -- install-deps installs these instead.
+# google-cloud-datastore is also in [processor.requirements] extra above, for
+# the same namespace-package reason documented there.
+[dependencies]
+pip = [
+    "flask",
+    "google-api-python-client",
+    "google-cloud-datastore",
+    "markupsafe",
+    "pyclassifiers",
+]
