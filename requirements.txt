@@ -3,4 +3,3 @@ flask
 google-api-python-client
 google-cloud-datastore
 markupsafe
-pyclassifiers
