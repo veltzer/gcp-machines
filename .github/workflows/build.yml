@@ -11,11 +11,6 @@ jobs:
     steps:
     - name: checkout
       uses: actions/checkout@v7
-    - name: python
-      uses: actions/setup-python@v6
-      with:
-        python-version: "3.12"
-        cache: "pip"
     - name: install-rsconstruct
       run: |
         curl -fsSL "https://github.com/veltzer/rsconstruct/releases/latest/download/rsconstruct-linux-x86_64" \
