@@ -13,7 +13,6 @@ website: https://veltzer.github.io/Machines
 Machines allows a list of users to turn machines in my GCP account on and off and access them.
 I use this to train students.
 
-
 ## Contact
 
 chat with me at [![gitter](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/veltzer/mark.veltzer)
