@@ -7,8 +7,6 @@
 
 [analyzer.tera]
 
-[analyzer.markdown]
-
 [analyzer.python]
 
 # ─── templating ──────────────────────────────────────────────────────────────
@@ -26,16 +24,6 @@ dep_auto = [
 	"config/python.lua",
 	"config/shared.lua",
 ]
-
-# ─── markdown ────────────────────────────────────────────────────────────────
-
-[processor.rumdl]
-src_dirs = ["src"]
-
-[processor.zspell]
-src_dirs = ["src"]
-
-# ─── python ──────────────────────────────────────────────────────────────────
 
 [processor.ruff]
 src_dirs = ["src", "scripts", "config", "tests"]
@@ -58,14 +46,6 @@ extra = ["google-cloud-datastore"]
 [processor.pytest]
 src_dirs = ["tests"]
 
-# ─── shell ───────────────────────────────────────────────────────────────────
-
-[processor.shellcheck]
-src_dirs = ["scripts", "src", "config"]
-args = ["--severity=error", "--shell=bash"]
-
-# ─── lua ─────────────────────────────────────────────────────────────────────
-
 [processor.luacheck]
 src_dirs = ["config"]
 
@@ -79,12 +59,6 @@ src_dirs = ["src"]
 
 [processor.tidy]
 src_dirs = ["src"]
-
-[processor.eslint]
-src_dirs = ["config"]
-args = ["-c", "config/eslint.config.js"]
-
-# ─── merged from rsconstruct.local.toml ─────────────────────────────────────
 
 # Runtime deps so CI installs what the code imports (pylint/mypy resolve them).
 # Same pattern as demos-cloud-aws; replaces the workflow's hand-run
