@@ -34,15 +34,6 @@ src_dirs = ["src", "scripts", "config", "tests"]
 [processor.mypy]
 src_dirs = ["src", "scripts", "config", "tests"]
 
-[processor.requirements]
-src_dirs = ["src", "scripts", "config", "tests"]
-# `from google.cloud import datastore` lives in a different distribution than
-# the rest of the google namespace package. Import scanning only sees the
-# top-level `google`, which resolves to google-api-python-client, so the
-# datastore distribution has to be declared explicitly or CI installs a
-# requirements.txt that cannot satisfy the import.
-extra = ["google-cloud-datastore"]
-
 [processor.pytest]
 src_dirs = ["tests"]
 
@@ -59,17 +50,3 @@ src_dirs = ["src"]
 
 [processor.tidy]
 src_dirs = ["src"]
-
-# Runtime deps so CI installs what the code imports (pylint/mypy resolve them).
-# Same pattern as demos-cloud-aws; replaces the workflow's hand-run
-# `pip install -r requirements.txt` -- install-deps installs these instead.
-# google-cloud-datastore is also in [processor.requirements] extra above, for
-# the same namespace-package reason documented there.
-[dependencies]
-pip = [
-    "flask",
-    "google-api-python-client",
-    "google-cloud-datastore",
-    "markupsafe",
-    "pyclassifiers",
-]
