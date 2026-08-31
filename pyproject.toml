@@ -10,6 +10,7 @@ dependencies = [
     "flask",
     "google-api-python-client",
     "google-cloud-datastore",
+    "gunicorn",
     "markupsafe",
     "pyclassifiers",
 ]

@@ -22,14 +22,15 @@ credentials, project_id = google.auth.default()
 compute = discovery.build("compute", "v1", credentials=credentials)
 
 # Optional shared secret: when the ACCESS_TOKEN environment variable is set
-# (see app.yaml), every request must present it as ?token=<value> once and it
+# (see scripts/deploy.sh), every request must present it as ?token=<value>
+# once and it
 # is then remembered in a cookie. The real protection is Identity-Aware Proxy
 # (see doc/iap.md); once IAP is enabled this token is redundant and can stay
 # unset.
 ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN")
 
 # Admins see and control every machine; students only their own. Comma
-# separated emails, set in app.yaml.
+# separated emails, set in scripts/deploy.sh.
 ADMIN_EMAILS = {
     email.strip().lower()
     for email in os.environ.get("ADMIN_EMAILS", "").split(",")

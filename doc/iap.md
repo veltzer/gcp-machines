@@ -1,25 +1,40 @@
 # Protecting the app with Identity-Aware Proxy (IAP)
 
-IAP sits in front of App Engine and forces a Google sign-in before any
-request reaches the app. Access is granted per email address. Enabling it is
-a one-time manual step; day-to-day student management is done with
+IAP sits in front of the Cloud Run service and forces a Google sign-in before
+any request reaches the app. Access is granted per email address. Enabling it
+is a one-time manual step; day-to-day student management is done with
 `scripts/iap.py`.
 
-## One-time enablement (console)
+## One-time enablement
 
-These steps cannot be scripted for this project: the brand (consent screen)
-API only works for projects that belong to an organization, and this project
-is owned by a personal account ("Project must belong to an organization").
-The `consent-create` command of `scripts/iap.py` exists for the day the
-project moves under an organization.
+By default IAP uses a Google-managed OAuth client which only admits
+identities from the project's organization. This project belongs to a
+personal account (no organization) and students sign in with plain Gmail
+addresses, so a custom OAuth client with an External consent screen is
+required, and that part cannot be scripted ("Project must belong to an
+organization"). The `consent-create` command of `scripts/iap.py` exists for
+the day the project moves under an organization.
 
 1. Open the GCP console for the project.
 1. Go to `APIs & Services -> OAuth consent screen` and configure it:
    set the app name and support email, choose `External`, and publish the
    app (students only sign in, no scopes are needed).
+1. Let IAP invoke the service — the service is deployed with
+   `--no-allow-unauthenticated`, so the IAP service agent needs the invoker
+   role (find the project number with `gcloud projects describe`):
+
+   ```bash
+   gcloud run services add-iam-policy-binding machines \
+       --region=us-central1 \
+       --member="serviceAccount:service-<project-number>@gcp-sa-iap.iam.gserviceaccount.com" \
+       --role=roles/run.invoker
+   ```
+
 1. Go to `Security -> Identity-Aware Proxy`
    (enable the `Cloud Identity-Aware Proxy API` if prompted).
-1. Toggle IAP **on** for the `App Engine app` resource.
+1. Toggle IAP **on** for the `machines` Cloud Run service and, when asked
+   about the OAuth client, pick the custom-client option (auto-generating
+   the credentials is fine) so out-of-organization Gmail users can sign in.
 1. Grant yourself access so you are not locked out:
 
    ```bash
@@ -60,9 +75,9 @@ same address you granted.
 
 The app shows each signed-in student only the machine whose `owner` label
 matches their email; a student with no mapping sees an empty list. Emails
-listed in the `ADMIN_EMAILS` environment variable (set in `app.yaml`) see
-and control everything, as do requests that carry no IAP identity (local
-development).
+listed in the `ADMIN_EMAILS` environment variable (set in
+`scripts/deploy.sh`) see and control everything, as do requests that carry
+no IAP identity (local development).
 
 The email-to-owner mapping lives in Datastore (kind `student`, key = email).
 `python scripts/iap.py sync` pushes it there from `data.gi/students.txt`
@@ -75,7 +90,11 @@ redeploy.
 - The app shows "Signed in as ..." by reading the
   `X-Goog-Authenticated-User-Email` header that IAP adds. IAP strips this
   header from incoming traffic, so it cannot be spoofed from outside.
-- The `ACCESS_TOKEN` shared-secret mechanism in `app.yaml` is a weaker
-  stopgap for the period before IAP is enabled; once IAP is on, leave it
-  unset.
-- IAP for App Engine is free of charge.
+- The `ACCESS_TOKEN` shared-secret mechanism in `scripts/deploy.sh` is a
+  weaker stopgap for the period before IAP is enabled; once IAP is on, leave
+  it unset.
+- IAP itself is free of charge, and enabling it directly on the Cloud Run
+  service needs no load balancer.
+- IAP grants live on the IAP resource of this specific service and region
+  (`iap_web/cloud_run-us-central1/services/machines`); grants made on the
+  old App Engine resource do not carry over.

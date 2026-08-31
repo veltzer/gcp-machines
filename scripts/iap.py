@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 """
-Manage Identity-Aware Proxy (IAP) access to the App Engine app.
+Manage Identity-Aware Proxy (IAP) access to the Cloud Run app.
 
 Enabling IAP itself is a one-time manual step in the GCP console (see
 doc/iap.md). Once it is on, this script manages which users may pass through
 it by granting/revoking the "IAP-secured Web App User" role
-(roles/iap.httpsResourceAccessor) on the App Engine IAP resource.
+(roles/iap.httpsResourceAccessor) on the Cloud Run IAP resource.
 
 Students are read from data.gi/students.txt, one per line in the form
 "<owner-name> [email]" (blank lines and lines starting with # are ignored;
@@ -56,6 +56,10 @@ def read_students():
 # The role IAP checks before letting a user through to the app.
 ROLE = "roles/iap.httpsResourceAccessor"
 
+# Where the app is deployed. Keep in sync with scripts/deploy.sh.
+SERVICE = "machines"
+REGION = "us-central1"
+
 def require_default_account(credentials):
     """
     Refuses to run unless we are authenticating as the default (personal)
@@ -84,11 +88,11 @@ def get_project_number(project_id, credentials):
     project = crm.projects().get(projectId=project_id).execute()
     return project["projectNumber"]
 
-def iap_resource(project_number, project_id):
+def iap_resource(project_number):
     """
-    Returns the IAM resource path of the IAP-protected App Engine app.
+    Returns the IAM resource path of the IAP-protected Cloud Run service.
     """
-    return f"projects/{project_number}/iap_web/appengine-{project_id}"
+    return f"projects/{project_number}/iap_web/cloud_run-{REGION}/services/{SERVICE}"
 
 def read_student_emails():
     """
@@ -133,13 +137,15 @@ def get_role_binding(policy):
 
 def iap_enabled(project_id, credentials):
     """
-    Returns whether IAP is currently enabled on the App Engine app, or None
-    if that could not be determined.
+    Returns whether IAP is currently enabled on the Cloud Run service, or
+    None if that could not be determined.
     """
     try:
-        appengine = discovery.build("appengine", "v1", credentials=credentials)
-        app_info = appengine.apps().get(appsId=project_id).execute()
-        return bool(app_info.get("iap", {}).get("enabled", False))
+        run = discovery.build("run", "v2", credentials=credentials)
+        service = run.projects().locations().services().get(
+            name=f"projects/{project_id}/locations/{REGION}/services/{SERVICE}"
+        ).execute()
+        return bool(service.get("iapEnabled", False))
     except Exception:  # noqa: BLE001 # pylint: disable=broad-exception-caught
         return None
 
@@ -149,7 +155,7 @@ def status(project_id, iap, resource, credentials):
     """
     enabled = iap_enabled(project_id, credentials)
     if enabled is None:
-        print("IAP enabled: unknown (could not query the App Engine API)")
+        print("IAP enabled: unknown (could not query the Cloud Run API)")
     else:
         print(f"IAP enabled: {'yes' if enabled else 'NO - the app is open to the world (see doc/iap.md)'}")
     members = get_role_binding(get_policy(iap, resource))
@@ -339,7 +345,7 @@ def show_input_sample():
 
 def main():
     """Main entry point and command-line parser."""
-    parser = argparse.ArgumentParser(description="Manage IAP access to the App Engine app.")
+    parser = argparse.ArgumentParser(description="Manage IAP access to the Cloud Run app.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # Status command
@@ -403,7 +409,7 @@ def main():
         "project_id": project_id,
         "project_number": project_number,
         "iap": iap,
-        "resource": iap_resource(project_number, project_id),
+        "resource": iap_resource(project_number),
     }
     args.func(args, context)
 

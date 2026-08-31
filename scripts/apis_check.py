@@ -34,7 +34,11 @@ def main():
         "datastore.googleapis.com",
         "gmail.googleapis.com",
         "cloudquotas.googleapis.com",
-        "appengine.googleapis.com",
+        "run.googleapis.com",
+        # source deploys (`gcloud run deploy --source`) build the container
+        # with Cloud Build and store it in Artifact Registry
+        "cloudbuild.googleapis.com",
+        "artifactregistry.googleapis.com",
         "iap.googleapis.com",
     ]
 

@@ -1,24 +1,17 @@
+# What `gcloud run deploy --source .` uploads to Cloud Build: only the
+# Dockerfile and what it COPYs (pyproject.toml, uv.lock, src/) need to go up.
+
 # ignore everything that .gitignore ignores
 #!include:.gitignore
 
-/db
-/misc
-/out
-/gcloud
 /config
-/tests
 /doc
-/support
 /scripts
-/Makefile
+/support
+/tera.templates
+/tests
+/LICENSE
 /README.md
 /package.json
 /package-lock.json
-/templates
-/LICENSE
-/requirements.thawed.txt
 /.??*
-
-# the deploy stamp is gitignored (so included above via .gitignore) but must
-# be uploaded: it is what the app/version endpoint serves
-!/build_info.json
