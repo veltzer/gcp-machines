@@ -46,8 +46,8 @@ IAP headers the app behaves as admin.
 
 - The URL changed from `https://<project>.appspot.com` to the service's
   `https://machines-<project-number>.us-central1.run.app` address
-  (`python scripts/browse.py` prints and opens it) — hand students the new
-  link.
+  (`gcp_run_browse.py` from the utils-python repo prints and opens it) —
+  hand students the new link.
 - IAP grants do not carry over between the App Engine and Cloud Run IAP
   resources; after enabling IAP on the service, re-run
   `python scripts/iap.py sync`. The Datastore student mapping is untouched
