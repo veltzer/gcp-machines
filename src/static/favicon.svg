@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+	<!-- server case -->
+	<rect x="10" y="4" width="44" height="56" rx="8" fill="#263238"/>
+	<!-- drive bays with status leds -->
+	<rect x="16" y="11" width="32" height="9" rx="3" fill="#4285f4"/>
+	<rect x="16" y="24" width="32" height="9" rx="3" fill="#4285f4"/>
+	<circle cx="43" cy="15.5" r="2.5" fill="#e8f0fe"/>
+	<circle cx="43" cy="28.5" r="2.5" fill="#e8f0fe"/>
+	<!-- power symbol -->
+	<path d="M32 38v6" fill="none" stroke="#34a853" stroke-width="4" stroke-linecap="round"/>
+	<path d="M25.6 39.6a9 9 0 1 0 12.8 0" fill="none" stroke="#34a853" stroke-width="4" stroke-linecap="round"/>
+</svg>
