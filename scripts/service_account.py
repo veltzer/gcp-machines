@@ -25,9 +25,7 @@ import google.auth
 from googleapiclient import discovery
 from googleapiclient.errors import HttpError
 
-# The "gae-" prefix predates the move to Cloud Run; the name is kept so the
-# migration does not have to recreate the account and re-grant every role.
-SERVICE_ACCOUNT_NAME = "gae-machines-engine-sa"
+SERVICE_ACCOUNT_NAME = "machines-app-sa"
 ROLES = [
     "roles/compute.admin",
     "roles/datastore.user",

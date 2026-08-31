@@ -17,9 +17,8 @@ REGION="us-central1"
 
 PROJECT_ID="$(gcloud config get-value project)"
 
-# The identity the deployed app runs as (created by scripts/service_account.py;
-# the "gae-" prefix predates the move to Cloud Run).
-SERVICE_ACCOUNT="gae-machines-engine-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+# The identity the deployed app runs as (created by scripts/service_account.py).
+SERVICE_ACCOUNT="machines-app-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 
 # Admins see and control every machine; students see only the machine whose
 # owner label maps to their email in Datastore (pushed by scripts/iap.py sync).

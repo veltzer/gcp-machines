@@ -24,8 +24,7 @@ service property and survives redeploys untouched.
    `compute.googleapis.com`, `datastore.googleapis.com` and
    `iap.googleapis.com`.
 1. Create the app's service account if it does not exist yet:
-   `python scripts/service_account.py create` (the account keeps its
-   historical `gae-machines-engine-sa` name).
+   `python scripts/service_account.py create`.
 1. Deploy: `./scripts/deploy.sh`.
 1. Put IAP in front of the service — see `doc/iap.md`; the service is
    deployed `--no-allow-unauthenticated`, so until IAP is on (and its
