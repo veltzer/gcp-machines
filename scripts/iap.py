@@ -157,7 +157,9 @@ def status(project_id, iap, resource, credentials):
     if enabled is None:
         print("IAP enabled: unknown (could not query the Cloud Run API)")
     else:
-        print(f"IAP enabled: {'yes' if enabled else 'NO - the app is open to the world (see doc/iap.md)'}")
+        # the service is deployed --no-allow-unauthenticated, so without IAP
+        # it is not public - it is unreachable (403) for everyone
+        print(f"IAP enabled: {'yes' if enabled else 'NO - nobody can reach the app until IAP is on (see doc/iap.md)'}")
     members = get_role_binding(get_policy(iap, resource))
     if members:
         print(f"Members with {ROLE}:")
