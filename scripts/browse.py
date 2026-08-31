@@ -7,6 +7,7 @@ browser. Handy for checking the app after a deploy or for grabbing the
 link to send to students.
 """
 
+import re
 import sys
 import webbrowser
 
@@ -21,13 +22,18 @@ REGION = "us-central1"
 
 def get_url(project_id, credentials):
     """
-    Returns the URL the Cloud Run service serves traffic on.
+    Returns the URL the Cloud Run service serves traffic on, preferring the
+    deterministic project-number form (machines-<number>.<region>.run.app)
+    over the older form with a random tag in the middle.
     """
     # pylint: disable=no-member
     run = discovery.build("run", "v2", credentials=credentials)
     service = run.projects().locations().services().get(
         name=f"projects/{project_id}/locations/{REGION}/services/{SERVICE}"
     ).execute()
+    for url in service.get("urls", []):
+        if re.fullmatch(rf"https://{SERVICE}-\d+\.{REGION}\.run\.app", url):
+            return url
     return service["uri"]
 
 

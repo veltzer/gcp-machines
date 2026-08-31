@@ -45,9 +45,9 @@ IAP headers the app behaves as admin.
 ## Migration notes (App Engine -> Cloud Run)
 
 - The URL changed from `https://<project>.appspot.com` to the service's
-  `https://machines-<hash>-uc.a.run.app` address
-  (`gcloud run services describe machines --region us-central1` shows it) —
-  hand students the new link.
+  `https://machines-<project-number>.us-central1.run.app` address
+  (`python scripts/browse.py` prints and opens it) — hand students the new
+  link.
 - IAP grants do not carry over between the App Engine and Cloud Run IAP
   resources; after enabling IAP on the service, re-run
   `python scripts/iap.py sync`. The Datastore student mapping is untouched
