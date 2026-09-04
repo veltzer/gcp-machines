@@ -76,7 +76,7 @@ same address you granted.
 The app shows each signed-in student only the machine whose `owner` label
 matches their email; a student with no mapping sees an empty list. Emails
 listed in the `ADMIN_EMAILS` environment variable (set in
-`scripts/deploy.sh`) see and control everything, as do requests that carry
+`.gcp.conf`) see and control everything, as do requests that carry
 no IAP identity (local development).
 
 The email-to-owner mapping lives in Datastore (kind `student`, key = email).
@@ -90,7 +90,7 @@ redeploy.
 - The app shows "Signed in as ..." by reading the
   `X-Goog-Authenticated-User-Email` header that IAP adds. IAP strips this
   header from incoming traffic, so it cannot be spoofed from outside.
-- The `ACCESS_TOKEN` shared-secret mechanism in `scripts/deploy.sh` is a
+- The `ACCESS_TOKEN` shared-secret mechanism in `.gcp.conf` is a
   weaker stopgap for the period before IAP is enabled; once IAP is on, leave
   it unset.
 - IAP itself is free of charge, and enabling it directly on the Cloud Run

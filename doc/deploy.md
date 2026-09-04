@@ -6,26 +6,25 @@ The app runs as a Cloud Run service called `machines` in `us-central1`
 ## Regular deploy
 
 ```bash
-./scripts/deploy.sh
+gcloud_run_deploy.sh
 ```
 
-The script wraps `gcloud run deploy --source .`: Cloud Build builds the
-`Dockerfile` and the new revision replaces the old one with no downtime.
-Everything the old `app.yaml` used to declare (environment variables,
-scaling, the service account) lives in the script as flags, so a redeploy
-always converges the service to what the script says. IAP enablement is a
-service property and survives redeploys untouched.
+The script (from the utils-bash repo) wraps `gcloud run deploy --source .`:
+Cloud Build builds the `Dockerfile` and the new revision replaces the old
+one with no downtime. Everything the old `app.yaml` used to declare
+(environment variables, scaling, the service account) lives in `.gcp.conf`
+as `gcp_run_args`, so a redeploy always converges the service to what that
+file says. IAP enablement is a service property and survives redeploys
+untouched.
 
 ## One-time project setup
 
-1. Enable the needed APIs (`python scripts/apis_check.py` shows what is
-   missing): `run.googleapis.com`, `cloudbuild.googleapis.com`,
-   `artifactregistry.googleapis.com`, plus the pre-existing
-   `compute.googleapis.com`, `datastore.googleapis.com` and
-   `iap.googleapis.com`.
+1. Enable the needed APIs: they are listed in `.services`, and
+   `gcloud_service_set.sh` (utils-bash) enables what is missing;
+   `gcloud_service_set.sh --check` only reports the drift.
 1. Create the app's service account if it does not exist yet:
    `python scripts/service_account.py create`.
-1. Deploy: `./scripts/deploy.sh`.
+1. Deploy: `gcloud_run_deploy.sh`.
 1. Put IAP in front of the service — see `doc/iap.md`; the service is
    deployed `--no-allow-unauthenticated`, so until IAP is on (and its
    service agent holds `roles/run.invoker`) nobody but the project owners
@@ -43,15 +42,16 @@ IAP headers the app behaves as admin.
 
 ## Migration notes (App Engine -> Cloud Run)
 
-- The URL changed from `https://<project>.appspot.com` to the service's
-  `https://machines-<project-number>.us-central1.run.app` address
-  (`gcp_run_browse.py` from the utils-python repo prints and opens it) —
-  hand students the new link.
-- IAP grants do not carry over between the App Engine and Cloud Run IAP
-  resources; after enabling IAP on the service, re-run
-  `python scripts/iap.py sync`. The Datastore student mapping is untouched
-  by the migration.
-- Once the Cloud Run service is verified working, disable the old App
-  Engine app (console: `App Engine -> Settings -> Disable application`) so
-  the stale copy stops serving; the `appengine.googleapis.com` API can then
-  be disabled as well.
+The app used to run on App Engine and moved to Cloud Run in 2026. For the
+record, since students and the IAP setup were affected:
+
+- The URL changed from `https://veltzer-machines-id.uc.r.appspot.com` to
+  the service's `https://machines-<project-number>.us-central1.run.app`
+  address (`gcloud_browse.sh` from the utils-bash repo prints and opens
+  it); students were handed the new link.
+- IAP grants did not carry over between the App Engine and Cloud Run IAP
+  resources, so `python scripts/iap.py sync` was re-run after enabling IAP
+  on the service. The Datastore student mapping was untouched.
+- The App Engine application is disabled (serving status `USER_DISABLED`)
+  and the `appengine.googleapis.com` API is turned off, so the old copy
+  cannot serve. Nothing App Engine specific is left in the repo.

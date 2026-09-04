@@ -56,7 +56,7 @@ def read_students():
 # The role IAP checks before letting a user through to the app.
 ROLE = "roles/iap.httpsResourceAccessor"
 
-# Where the app is deployed. Keep in sync with scripts/deploy.sh.
+# Where the app is deployed. Keep in sync with gcp_service/gcp_region in .gcp.conf.
 SERVICE = "machines"
 REGION = "us-central1"
 

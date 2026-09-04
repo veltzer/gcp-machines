@@ -1,4 +1,4 @@
-# Container image for the Cloud Run service (built by scripts/deploy.sh via
+# Container image for the Cloud Run service (built by gcloud_run_deploy.sh from utils-bash via
 # `gcloud run deploy --source`). Dependencies come from uv.lock, the single
 # place versions are controlled.
 
