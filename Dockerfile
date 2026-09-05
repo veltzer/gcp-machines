@@ -18,4 +18,4 @@ COPY src ./src
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Cloud Run tells us which port to listen on via $PORT.
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 src.main:app
+CMD ["sh", "-c", "exec gunicorn --bind :${PORT} --workers 1 --threads 8 --timeout 0 src.main:app"]
