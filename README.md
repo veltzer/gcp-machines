@@ -1,11 +1,11 @@
 <!-- This file is generated. Do not edit it by hand: your changes will be
      lost on the next build. Edit the template it is rendered from, or the
      values that template reads, and build again. -->
-# *Machines* project by Mark Veltzer
+# *gcp-machines* project by Mark Veltzer
 
-description: machines project
+description: The machines project in GAE
 
-project website: https://veltzer.github.io/Machines
+project website: https://veltzer.github.io/gcp-machines
 
 author: Mark Veltzer
 
@@ -15,11 +15,11 @@ version: 0.0.1
 
 ## github
 
-![License](https://img.shields.io/github/license/veltzer/Machines)
+![License](https://img.shields.io/github/license/veltzer/gcp-machines)
 
 ## build
 
-![build](https://github.com/veltzer/Machines/workflows/build/badge.svg)
+![build](https://github.com/veltzer/gcp-machines/workflows/build/badge.svg)
 
 ## contact me
 
