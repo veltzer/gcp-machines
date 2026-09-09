@@ -23,8 +23,6 @@ version: 0.0.1
 
 ## contact me
 
-[mailto](mailto:mark.veltzer@gmail.com)
-![discord](https://img.shields.io/discord/719336281624281119)
-![discord](https://img.shields.io/discord/719336282194444302)
+[mark.veltzer@gmail.com](mailto:mark.veltzer@gmail.com)
 
 Mark Veltzer, Copyright © 2024, 2025, 2026
