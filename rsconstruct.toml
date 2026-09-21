@@ -27,8 +27,6 @@ dep_auto = [
 [processor.ruff]
 src_dirs = ["src", "scripts", "config", "tests"]
 
-[processor.pylint]
-src_dirs = ["src", "scripts", "config", "tests"]
 
 [processor.mypy]
 src_dirs = ["src", "scripts", "config", "tests"]
