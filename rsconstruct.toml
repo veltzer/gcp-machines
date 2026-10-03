@@ -42,9 +42,6 @@ src_dirs = ["config"]
 [processor.taplo]
 src_files = [".rumdl.toml", "pyproject.toml", "rsconstruct.toml"]
 
-[processor.htmlhint]
-src_dirs = ["src"]
-
 [processor.tidy]
 src_dirs = ["src"]
 
@@ -67,7 +64,6 @@ src_files = ["Dockerfile"]
 
 [processor.ijsonlint]
 src_dirs = [".claude"]
-src_files = ["package.json"]
 
 # ─── xml / svg ───────────────────────────────────────────────────────────────
 
