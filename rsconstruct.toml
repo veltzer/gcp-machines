@@ -16,7 +16,7 @@ reject_dot_src_dirs = true
 # listed here must exist: rsconstruct rejects a missing one at config load.
 # Repos still on config/*.py keep a dep_inputs override in their local
 # overlay until converted.
-[processor.tera]
+[processor.generator.tera]
 src_dirs = ["tera.templates"]
 dep_auto = [
 	"config/project.lua",
@@ -24,48 +24,48 @@ dep_auto = [
 	"config/version.lua",
 ]
 
-[processor.ruff]
+[processor.checker.ruff]
 src_dirs = ["src", "scripts", "config", "tests"]
 
 
-[processor.mypy]
+[processor.checker.mypy]
 src_dirs = ["src", "scripts", "config", "tests"]
 
-[processor.pytest]
+[processor.checker.pytest]
 src_dirs = ["tests"]
 
-[processor.luacheck]
+[processor.checker.luacheck]
 src_dirs = ["config"]
 
 # ─── toml / yaml / json ──────────────────────────────────────────────────────
 
-[processor.taplo]
+[processor.checker.taplo]
 src_files = [".rumdl.toml", "pyproject.toml", "rsconstruct.toml"]
 
-[processor.tidy]
+[processor.checker.tidy]
 src_dirs = ["src"]
 
 # lint the GitHub Actions workflow files with actionlint
-[processor.actionlint]
+[processor.checker.actionlint]
 src_dirs = [".github/workflows"]
 
 # ─── markdown ────────────────────────────────────────────────────────────────
 
-[processor.rumdl]
+[processor.checker.rumdl]
 src_dirs = ["doc"]
 src_files = ["README.md"]
 
 # ─── docker ──────────────────────────────────────────────────────────────────
 
-[processor.hadolint]
+[processor.checker.hadolint]
 src_files = ["Dockerfile"]
 
 # ─── json ────────────────────────────────────────────────────────────────────
 
-[processor.ijsonlint]
+[processor.checker.ijsonlint]
 src_dirs = [".claude"]
 
 # ─── xml / svg ───────────────────────────────────────────────────────────────
 
-[processor.xmllint]
+[processor.checker.xmllint]
 src_dirs = ["src/static"]
