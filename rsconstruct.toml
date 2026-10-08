@@ -67,5 +67,5 @@ src_dirs = [".claude"]
 
 # ─── xml / svg ───────────────────────────────────────────────────────────────
 
-[processor.checker.xmllint]
+[processor.checker.ixmllint]
 src_dirs = ["src/static"]
