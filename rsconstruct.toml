@@ -34,7 +34,7 @@ src_dirs = ["src", "scripts", "config", "tests"]
 [processor.checker.pytest]
 src_dirs = ["tests"]
 
-[processor.checker.luacheck]
+[processor.checker.iluacheck]
 src_dirs = ["config"]
 
 # ─── toml / yaml / json ──────────────────────────────────────────────────────
