@@ -28,7 +28,7 @@ dep_auto = [
 src_dirs = ["src", "scripts", "config", "tests"]
 
 
-[processor.checker.mypy]
+[processor.checker.pyrefly]
 src_dirs = ["src", "scripts", "config", "tests"]
 
 [processor.checker.pytest]
