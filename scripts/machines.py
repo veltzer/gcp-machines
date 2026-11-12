@@ -70,8 +70,14 @@ ALLOWED_ZONES = ("us-central1-a", "us-east1-c")
 
 # The machine type used for every instance, and how many vCPUs it consumes.
 # Used both when creating machines and when computing per-zone limits.
-MACHINE_TYPE = "e2-standard-2"
+# N2 (Intel) rather than E2 because E2 does not support nested
+# virtualization, which the machines need to run KVM guests (qemu, libvirt).
+MACHINE_TYPE = "n2-standard-2"
 MACHINE_VCPUS = 2
+
+# The regional quota metrics a machine of MACHINE_TYPE counts against: the
+# general CPUS quota and the per-series N2_CPUS quota. The tighter one wins.
+MACHINE_QUOTA_METRICS = ("CPUS", "N2_CPUS")
 
 def require_default_account(credentials):
     """
@@ -224,6 +230,7 @@ def create_machine(project_id, compute, number, zone, owner, ssh_key):
             },
         }],
         "labels": {"owner": owner},
+        "advancedMachineFeatures": {"enableNestedVirtualization": True},
     }
     operation = compute.instances().insert(project=project_id, zone=zone, body=config).execute()
     return (zone, operation["name"])
@@ -311,28 +318,30 @@ def delete_all_machines(project_id, compute, wait_mode):
     if wait_mode == WAIT_ALL:
         wait_for_operations(project_id, compute, operations, "be deleted")
 
-# Cache of per-region CPUS quota limit, keyed by region name. Populated lazily
+# Cache of per-region CPU quota limit, keyed by region name. Populated lazily
 # by zone_machine_limit so zones sharing a region don't re-fetch it.
 _REGION_CPU_LIMIT_CACHE: dict[str, int | None] = {}
 
 def zone_machine_limit(project_id, compute, zone):
     """
     Returns the absolute cap on how many machines of our standard machine
-    type can be created in a zone, based on the region's CPU quota, or None
-    if the region has no CPUS quota.
+    type can be created in a zone, based on the region's CPU quotas, or None
+    if the region has none of the MACHINE_QUOTA_METRICS quotas.
 
     CPU quota in GCP is per-region, so each zone is mapped to its region
-    (e.g. "us-central1-a" -> "us-central1"). The cap is the full
-    CPUS quota limit // vCPUs-per-machine, regardless of current usage.
+    (e.g. "us-central1-a" -> "us-central1"). The cap is the smallest
+    MACHINE_QUOTA_METRICS limit // vCPUs-per-machine, regardless of current
+    usage.
     """
     region = zone.rsplit("-", 1)[0]
     if region not in _REGION_CPU_LIMIT_CACHE:
         region_info = compute.regions().get(project=project_id, region=region).execute()
-        cpu_quota = next(
-            (q for q in region_info.get("quotas", []) if q["metric"] == "CPUS"),
-            None,
-        )
-        _REGION_CPU_LIMIT_CACHE[region] = None if cpu_quota is None else int(cpu_quota["limit"])
+        limits = [
+            int(q["limit"])
+            for q in region_info.get("quotas", [])
+            if q["metric"] in MACHINE_QUOTA_METRICS
+        ]
+        _REGION_CPU_LIMIT_CACHE[region] = min(limits) if limits else None
     cpu_limit = _REGION_CPU_LIMIT_CACHE[region]
     return None if cpu_limit is None else cpu_limit // MACHINE_VCPUS
 
