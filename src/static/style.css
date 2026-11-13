@@ -581,3 +581,68 @@ button:disabled {
 		animation: none;
 	}
 }
+
+/* ─── students table (admin) ─────────────────────────────────────────────── */
+
+.content h2 {
+	margin: 2.5rem 0 0.5rem;
+	font-size: 1.25rem;
+}
+
+.hint-left {
+	margin: 0 0 1rem;
+	font-size: 0.9rem;
+	color: var(--muted);
+}
+
+.students {
+	overflow-x: auto;
+	background: #fff;
+	border: 1px solid var(--line);
+	border-radius: 14px;
+	font-size: 0.9rem;
+}
+
+.student {
+	display: grid;
+	grid-template-columns: minmax(12rem, 2fr) minmax(6rem, 1fr) minmax(8rem, 1fr) minmax(14rem, 1.5fr);
+	align-items: center;
+	gap: 0.5rem 1rem;
+	min-width: 44rem;
+	padding: 0.6rem 0.9rem;
+	border-bottom: 1px solid var(--line);
+}
+
+.student:last-child {
+	border-bottom: 0;
+}
+
+.student.head {
+	font-size: 0.75rem;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--muted);
+}
+
+.student.pending {
+	color: var(--muted);
+}
+
+.source {
+	font-size: 0.75rem;
+	color: var(--muted);
+}
+
+.assign {
+	display: flex;
+	gap: 0.4rem;
+	margin: 0;
+}
+
+.assign select {
+	font: inherit;
+	padding: 0.3rem 0.5rem;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	background: #fff;
+}

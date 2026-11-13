@@ -41,6 +41,15 @@
 								owner {{machine.owner}} &middot; {{machine.zone}} &middot;
 								<span class="machine-ip">{{machine.ip}}</span>
 							</div>
+							{% if admin %}
+								<div class="machine-meta">
+									{% if machine.students %}
+										assigned to {{machine.students|join(", ")}}
+									{% else %}
+										unassigned
+									{% endif %}
+								</div>
+							{% endif %}
 						</div>
 						<div class="machine-actions">
 							<button type="button" class="quiet" data-copy="{{machine.ip}}">Copy IP</button>
@@ -55,6 +64,56 @@
 					</li>
 				{% endfor %}
 			</ul>
+			{% if admin %}
+				<h2 id="students">Students</h2>
+				<p class="hint-left">
+					A student controls the machines whose owner label is their
+					assignment. An assignment made here wins; otherwise a Google or
+					GitHub account gets the one the roster lists for its email.
+					Password accounts are never matched by email: assign them here.
+				</p>
+				<div class="students" role="table" aria-label="Students" data-owners="{{owners|join(',')}}">
+					<div class="student head" role="row">
+						<span role="columnheader">Email</span>
+						<span role="columnheader">Sign-in</span>
+						<span role="columnheader">Machine</span>
+						<span role="columnheader">Assign</span>
+					</div>
+					{% for row in students %}
+						<div class="student" role="row">
+							<span role="cell">
+								{{row.email}}
+								{% if row.admin %}<span class="badge">admin</span>{% endif %}
+							</span>
+							<span role="cell">{{row.method}}</span>
+							<span role="cell">
+								{% if row.owner %}
+									{{row.owner}} <span class="source">{{row.source}}</span>
+								{% else %}
+									<span class="source">none</span>
+								{% endif %}
+							</span>
+							<div role="cell">
+								<form method="post" action="/admin/assign" class="assign">
+									<input type="hidden" name="subject" value="{{row.subject}}">
+									<select name="owner" aria-label="Machine for {{row.email}}" data-selected="{{row.assigned}}">
+										<option value="">roster / none</option>
+									</select>
+									<button type="submit" class="quiet">Save</button>
+								</form>
+							</div>
+						</div>
+					{% endfor %}
+					{% for row in pending %}
+						<div class="student pending" role="row">
+							<span role="cell">{{row.email}}</span>
+							<span role="cell"><span class="source">not signed up</span></span>
+							<span role="cell">{{row.owner}} <span class="source">roster</span></span>
+							<span role="cell">&ndash;</span>
+						</div>
+					{% endfor %}
+				</div>
+			{% endif %}
 		</main>
 	</body>
 </html>

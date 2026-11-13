@@ -96,9 +96,11 @@ class FakeDatastore:
         return contextlib.nullcontext()
 
     def query(self, kind):
-        assert kind == "student"
         query = unittest.mock.Mock()
-        query.fetch.return_value = self.students
+        if kind == "student":
+            query.fetch.return_value = self.students
+        else:
+            query.fetch.return_value = [e for (k, _name), e in self.entities.items() if k == kind]
         return query
 
 
@@ -437,3 +439,84 @@ def test_run_app_hostnames_redirect_to_the_custom_domain():
     assert response.headers["Location"] == "https://machines.veltzer.org/some/path?x=1"
     assert client.get("/app/health", base_url="https://machines-123.us-central1.run.app").status_code == 200
     assert client.get("/", base_url="https://machines.veltzer.org").status_code == 200
+
+
+# ─── assignments ─────────────────────────────────────────────────────────────
+
+def test_admin_sees_who_has_which_machine():
+    module, _fake_compute = load_app(ADMIN)
+    set_mapping(module, {"keren@gmail.com": "keren", "raz@gmail.com": "raz"})
+    add_user(module, "google:keren", "keren@gmail.com")
+    add_user(module, "email:dana@example.com", "dana@example.com", verified=False)
+    body = signed_in_client(module).get("/").get_data(as_text=True)
+    assert 'id="students"' in body
+    # machine cards name their students; the unlabeled one is unassigned
+    assert "assigned to keren@gmail.com" in body
+    assert "assigned to raz@gmail.com" in body
+    assert "unassigned" in body
+    # every account is listed, and roster students who have not signed up yet
+    assert "dana@example.com" in body
+    assert "not signed up" in body
+    assert "Password" in body
+
+
+def test_student_does_not_see_other_students():
+    module, _fake_compute = load_app(ADMIN)
+    set_mapping(module, {"keren@gmail.com": "keren", "raz@gmail.com": "raz"})
+    add_user(module, "google:raz", "raz@gmail.com")
+    body = signed_in_client(module, "keren@gmail.com").get("/").get_data(as_text=True)
+    assert "machine-keren" in body
+    assert 'id="students"' not in body
+    assert "raz@gmail.com" not in body
+    assert "machine-raz" not in body
+
+
+def test_admin_assigns_a_machine_to_a_password_account():
+    module, fake_compute = load_app(ADMIN)
+    add_user(module, "email:dana@example.com", "dana@example.com", verified=False)
+    admin = signed_in_client(module)
+    response = admin.post("/admin/assign", data={"subject": "email:dana@example.com", "owner": "raz"})
+    assert response.status_code == 302
+    assert module.datastore_client.entities[("user", "email:dana@example.com")]["owner"] == "raz"
+    dana = module.app.test_client()
+    with dana.session_transaction() as session:
+        session["subject"] = "email:dana@example.com"
+    body = dana.get("/").get_data(as_text=True)
+    assert "machine-raz" in body
+    assert "machine-keren" not in body
+    instances = set_instance_status(fake_compute, "TERMINATED", owner="raz")
+    assert dana.post("/process", data={"name": "machine-raz", "zone": "us-central1-a"}).status_code == 200
+    instances.start.assert_called_once()
+    # clearing it takes the machine away again
+    admin.post("/admin/assign", data={"subject": "email:dana@example.com", "owner": ""})
+    assert "owner" not in module.datastore_client.entities[("user", "email:dana@example.com")]
+    assert "No machine is assigned to you" in dana.get("/").get_data(as_text=True)
+
+
+def test_assignment_wins_over_the_roster():
+    module, _fake_compute = load_app(ADMIN)
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    client = signed_in_client(module, "keren@gmail.com", owner="raz")
+    body = client.get("/").get_data(as_text=True)
+    assert "machine-raz" in body
+    assert "machine-keren" not in body
+
+
+def test_only_admins_assign():
+    module, _fake_compute = load_app(ADMIN)
+    add_user(module, "email:dana@example.com", "dana@example.com", verified=False)
+    student = signed_in_client(module, "keren@gmail.com")
+    response = student.post("/admin/assign", data={"subject": "google:keren@gmail.com", "owner": "raz"})
+    assert response.status_code == 403
+    assert "owner" not in module.datastore_client.entities[("user", "google:keren@gmail.com")]
+    anonymous = module.app.test_client().post("/admin/assign", data={"subject": "email:dana@example.com", "owner": "raz"})
+    assert anonymous.status_code == 302
+    assert "owner" not in module.datastore_client.entities[("user", "email:dana@example.com")]
+
+
+def test_assign_refuses_unknown_machines_and_accounts():
+    module, _fake_compute = load_app(ADMIN)
+    add_user(module, "email:dana@example.com", "dana@example.com", verified=False)
+    admin = signed_in_client(module)
+    assert admin.post("/admin/assign", data={"subject": "email:dana@example.com", "owner": "nobody"}).status_code == 400
+    assert admin.post("/admin/assign", data={"subject": "email:ghost@example.com", "owner": "raz"}).status_code == 404

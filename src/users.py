@@ -87,3 +87,20 @@ def touch(client, entity):
     """ record a login on an existing account """
     entity["last_login"] = _now()
     client.put(entity)
+
+
+def set_owner(client, subject, owner):
+    """
+    Assign a machine owner label to an account, or with an empty owner clear
+    the assignment. Returns False when there is no such account.
+    """
+    with client.transaction():
+        entity = get(client, subject)
+        if entity is None:
+            return False
+        if owner:
+            entity["owner"] = owner
+        else:
+            entity.pop("owner", None)
+        client.put(entity)
+    return True

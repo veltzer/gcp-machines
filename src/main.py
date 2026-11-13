@@ -17,7 +17,7 @@ from google.cloud import datastore
 from googleapiclient import discovery
 from googleapiclient.errors import HttpError
 
-from src import auth
+from src import auth, users
 
 HTML_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "html")
 
@@ -88,19 +88,68 @@ def is_admin(user):
     return bool(user.get("verified")) and user.get("email", "").lower() in ADMIN_EMAILS
 
 
-def owner_of(user):
+def assignment(user):
     """
-    The machine owner label this account may control, or None. An owner an
-    admin assigned to the account wins; otherwise a verified email is looked
-    up in the roster. An unverified (password) account is never matched by
-    email, or anyone could register a student's address and take over their
-    machine.
+    The machine owner label this account may control and where that comes
+    from: ("<owner>", "assigned") when an admin assigned it on the Students
+    table, ("<owner>", "roster") when the account's verified email is in the
+    course roster, (None, None) otherwise. An unverified (password) account
+    is never matched by email, or anyone could register a student's address
+    and take over their machine.
     """
     if user.get("owner"):
-        return user["owner"]
+        return user["owner"], "assigned"
     if user.get("verified") and user.get("email"):
-        return email_to_owner().get(user["email"].lower())
-    return None
+        owner = email_to_owner().get(user["email"].lower())
+        if owner is not None:
+            return owner, "roster"
+    return None, None
+
+
+def owner_of(user):
+    """ the machine owner label this account may control, or None """
+    return assignment(user)[0]
+
+
+# how each sign-in method is named on the Students table, by subject prefix
+METHODS = {"google": "Google", "github": "GitHub", "email": "Password", "dev": "Development"}
+
+
+def students_table(machines):
+    """
+    Every account and its machine, then the roster students who have not
+    signed up yet (or only with a password, which the roster does not
+    match): what the admin sees on the Students table. Also annotates each
+    machine with the emails it is assigned to.
+    """
+    rows = []
+    signed_up = set()
+    for user in datastore_client.query(kind="user").fetch():
+        subject = user.key.name
+        owner, source = assignment(user)
+        if user.get("verified"):
+            signed_up.add(user.get("email", "").lower())
+        rows.append({
+            "subject": subject,
+            "email": user.get("email", ""),
+            "method": METHODS.get(subject.split(":", 1)[0], subject.split(":", 1)[0]),
+            "admin": is_admin(user),
+            "owner": owner,
+            "source": source,
+            "assigned": user.get("owner") or "",
+        })
+    rows.sort(key=lambda row: (row["email"], row["method"]))
+    pending = [
+        {"email": email, "owner": owner}
+        for email, owner in sorted(email_to_owner().items())
+        if email not in signed_up
+    ]
+    for machine in machines:
+        machine["students"] = sorted(
+            {row["email"] for row in rows if row["owner"] == machine["owner"]}
+            | {row["email"] for row in pending if row["owner"] == machine["owner"]}
+        )
+    return rows, pending
 
 
 @app.before_request
@@ -175,10 +224,40 @@ def root():
         return flask.send_from_directory(HTML_DIR, "index.html")
     machines = get_machines()
     admin = is_admin(user)
-    if not admin:
+    students = pending = owners = None
+    if admin:
+        students, pending = students_table(machines)
+        owners = sorted({m["owner"] for m in machines if m["owner"] != "unknown"})
+    else:
         owner = owner_of(user)
         machines = [m for m in machines if owner is not None and m["owner"] == owner]
-    return flask.render_template("machines.html", machines=machines, user=user, admin=admin)
+    return flask.render_template(
+        "machines.html",
+        machines=machines,
+        user=user,
+        admin=admin,
+        students=students,
+        pending=pending,
+        owners=owners,
+    )
+
+
+@app.route("/admin/assign", methods=["POST"])
+@auth.login_required
+def assign():
+    """
+    Assign a machine (by its owner label) to an account, or clear the
+    assignment so the account falls back to the roster. Admins only.
+    """
+    if not is_admin(auth.current_user()):
+        flask.abort(403, "Only an admin may assign machines.")
+    subject = flask.request.form["subject"]
+    owner = flask.request.form["owner"]
+    if owner and owner not in {m["owner"] for m in get_machines()}:
+        flask.abort(400, "There is no machine with that owner.")
+    if not users.set_owner(datastore_client, subject, owner):
+        flask.abort(404, "There is no such account.")
+    return flask.redirect(flask.url_for("root", _anchor="students"))
 
 
 @app.route("/process", methods=["POST"])

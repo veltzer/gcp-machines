@@ -144,7 +144,28 @@ async function indexPage() {
 
 // ─── machines page ──────────────────────────────────────────────────────────
 
+// The admin's Students table: every assign dropdown offers the machines'
+// owner labels (data-owners, comma separated; labels cannot hold commas)
+// with the account's current assignment selected.
+function fillAssignments() {
+	const table = document.querySelector(".students[data-owners]");
+	if (!table) {
+		return;
+	}
+	const owners = table.dataset.owners ? table.dataset.owners.split(",") : [];
+	for (const select of table.querySelectorAll("select[data-selected]")) {
+		for (const owner of owners) {
+			const option = document.createElement("option");
+			option.value = owner;
+			option.textContent = owner;
+			option.selected = owner === select.dataset.selected;
+			select.appendChild(option);
+		}
+	}
+}
+
 function machinesPage() {
+	fillAssignments();
 	for (const button of document.querySelectorAll("button[data-copy]")) {
 		button.onclick = async () => {
 			await navigator.clipboard.writeText(button.dataset.copy);
