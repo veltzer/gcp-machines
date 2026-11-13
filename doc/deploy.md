@@ -40,6 +40,21 @@ python src/main.py
 Runs the Flask dev server on port 8080 with your local credentials; without
 IAP headers the app behaves as admin.
 
+## Custom domain
+
+Students use `https://machines.veltzer.org`. It is a Cloud Run domain
+mapping (preview feature) on the `machines` service:
+
+```bash
+gcloud beta run domain-mappings create --service machines \
+    --domain machines.veltzer.org --region us-central1
+```
+
+backed by a Cloudflare DNS record `machines CNAME ghs.googlehosted.com`
+that must stay **DNS only** (not proxied), or Google cannot renew the
+managed certificate. IAP works through the mapping unchanged. The
+`run.app` URLs keep working as well.
+
 ## Migration notes (App Engine -> Cloud Run)
 
 The app used to run on App Engine and moved to Cloud Run in 2026. For the
