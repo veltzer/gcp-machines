@@ -661,3 +661,31 @@ button:disabled {
 	border-radius: 6px;
 	background: #fff;
 }
+
+/* ─── messages and the email verification box ─────────────────────────────── */
+
+.notice {
+	margin: 0 0 1rem;
+	padding: 0.6rem 1rem;
+	background: #eff6ff;
+	border: 1px solid #bfdbfe;
+	border-radius: 10px;
+}
+
+.verify {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.75rem 1.25rem;
+	align-items: center;
+	justify-content: space-between;
+	margin: 0 0 1.5rem;
+	padding: 1rem 1.25rem;
+	background: #fffbeb;
+	border: 1px solid #fde68a;
+	border-radius: 16px;
+}
+
+.verify p {
+	flex: 1 1 20rem;
+	margin: 0;
+}

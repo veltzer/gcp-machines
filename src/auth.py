@@ -14,14 +14,18 @@ an access token and asks GitHub who signed in. A provider is offered only
 when its client id and secret are set in the environment.
 
 Email accounts live entirely in Datastore, with werkzeug password hashes.
+Their address counts as verified once the student follows the link that
+Identity Platform mails at sign-up (see verification.py).
 
 Whichever way was used, the signed Flask session cookie then holds only the
 account's subject (the Datastore key name).
 """
 
 import dataclasses
+import datetime
 import functools
 import hmac
+import logging
 import os
 import secrets
 import urllib.parse
@@ -34,11 +38,22 @@ from google.oauth2 import id_token
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from src import users
+from src.verification import VerificationError
 
 bp = flask.Blueprint("auth", __name__, url_prefix="/auth")
 
 PASSWORD_MIN_LENGTH = 8
 HTTP_TIMEOUT = 10
+# the least time between two verification mails to the same address
+RESEND_INTERVAL = datetime.timedelta(seconds=60)
+
+logger = logging.getLogger(__name__)
+
+
+def _external_url(endpoint, **values):
+    # Cloud Run terminates TLS in front of the app, so build the https URL by hand there.
+    scheme = "https" if flask.current_app.config["ON_CLOUD_RUN"] else None
+    return flask.url_for(endpoint, _external=True, _scheme=scheme, **values)
 
 
 def datastore_client():
@@ -62,6 +77,11 @@ def configure(app):
             name = f"{key.upper()}_{part}"
             app.config[name] = os.environ.get(name, "")
     app.register_blueprint(bp)
+
+
+def verifier():
+    """ what sends and checks verification mails (verification.IdentityPlatform) """
+    return flask.current_app.config["VERIFIER"]
 
 
 def google_client_id():
@@ -162,6 +182,7 @@ def email_register():
     if entity is None:
         flask.abort(409, "there is already an account with this email, sign in instead")
     start_session(entity)
+    send_verification(entity)
     return flask.jsonify({"next": flask.url_for("root")})
 
 
@@ -176,6 +197,55 @@ def email_login():
     users.touch(datastore_client(), entity)
     start_session(entity)
     return flask.jsonify({"next": flask.url_for("root")})
+
+
+# ─── verifying the email of a password account ──────────────────────────────
+
+def needs_verification(user):
+    return user.key.name.startswith("email:") and not user.get("verified")
+
+
+def send_verification(entity):
+    """ mail the account's address a verification link, and say so on the next page """
+    sent = entity.get("verification_sent")
+    if sent is not None and users.now() - sent < RESEND_INTERVAL:
+        flask.flash("A link was mailed less than a minute ago. Wait a little before asking for another.")
+        return
+    try:
+        verifier().send(entity["email"], _external_url("root"))
+    except (VerificationError, requests.RequestException, ValueError) as error:
+        logger.warning("verification mail to %s failed: %s", entity["email"], error)
+        flask.flash("The verification mail could not be sent. Try Send again in a minute.")
+        return
+    users.mark_verification_sent(datastore_client(), entity)
+    flask.flash(f"We mailed a verification link to {entity['email']}.")
+
+
+def check_verification(user):
+    """
+    Whether a password account's address was verified by now, marking it so
+    when it was. Asked on each visit until it is; a failed check counts as
+    not yet.
+    """
+    if not needs_verification(user):
+        return
+    try:
+        verified = verifier().verified(user["email"])
+    except (VerificationError, requests.RequestException, ValueError) as error:
+        logger.warning("verification check of %s failed: %s", user["email"], error)
+        return
+    if verified:
+        users.mark_verified(datastore_client(), user)
+        flask.flash("Your email is verified.")
+
+
+@bp.route("/verify/resend", methods=["POST"])
+@login_required
+def resend_verification():
+    user = current_user()
+    if needs_verification(user):
+        send_verification(user)
+    return flask.redirect(flask.url_for("root"))
 
 
 # ─── other providers (oauth 2.0 authorization code) ─────────────────────────
@@ -226,9 +296,7 @@ def _provider(key):
 
 
 def _callback_url(provider):
-    # Cloud Run terminates TLS in front of the app, so build the https URL by hand there.
-    scheme = "https" if flask.current_app.config["ON_CLOUD_RUN"] else None
-    return flask.url_for("auth.oauth_callback", provider=provider.key, _external=True, _scheme=scheme)
+    return _external_url("auth.oauth_callback", provider=provider.key)
 
 
 def exchange_code(provider, code, redirect_uri):

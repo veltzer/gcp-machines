@@ -13,6 +13,8 @@ iap.googleapis.com
 oslogin.googleapis.com
 # the session cookie key and OAuth client secrets (gcp_secrets in .gcp.conf)
 secretmanager.googleapis.com
+# Identity Platform mails the verification link of password accounts
+identitytoolkit.googleapis.com
 # source deploys (`gcloud run deploy --source`) build the container with
 # Cloud Build and store it in Artifact Registry
 cloudbuild.googleapis.com
@@ -39,3 +41,14 @@ storage-api.googleapis.com
 storage-component.googleapis.com
 storage.googleapis.com
 telemetry.googleapis.com
+
+# enabled by Google when Identity Platform was initialized (2026-11-13)
+fcm.googleapis.com
+firebase.googleapis.com
+firebasehosting.googleapis.com
+firebaseinstallations.googleapis.com
+firebaseremoteconfig.googleapis.com
+firebaseremoteconfigrealtime.googleapis.com
+runtimeconfig.googleapis.com
+securetoken.googleapis.com
+testing.googleapis.com

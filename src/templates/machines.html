@@ -25,6 +25,21 @@
 			</div>
 		</header>
 		<main class="content">
+			{% for message in get_flashed_messages() %}
+				<p class="notice">{{message}}</p>
+			{% endfor %}
+			{% if unverified %}
+				<div class="verify">
+					<p>
+						To get your machine, verify your email: open the mail sent to
+						<strong>{{user.email}}</strong> (look in spam too), follow its link,
+						then press Continue on the page it opens.
+					</p>
+					<form method="post" action="/auth/verify/resend">
+						<button type="submit" class="quiet">Send again</button>
+					</form>
+				</div>
+			{% endif %}
 			<h1>{% if admin %}All machines{% else %}Your machine{% endif %}</h1>
 			{% if machines and not admin %}
 				<p class="hint-left">
@@ -33,7 +48,7 @@
 					<code>chmod 600</code> on the key file). Suspend it when you are done.
 				</p>
 			{% endif %}
-			{% if machines|length == 0 %}
+			{% if machines|length == 0 and not unverified %}
 				<p class="empty">
 					No machine is assigned to you. Contact your instructor.
 				</p>
@@ -86,9 +101,10 @@
 				<h2 id="students">Students</h2>
 				<p class="hint-left">
 					A student controls the machines whose owner label is their
-					assignment. An assignment made here wins; otherwise a Google or
-					GitHub account gets the one the roster lists for its email.
-					Password accounts are never matched by email: assign them here.
+					assignment. An assignment made here wins; otherwise an account
+					gets the one the roster lists for its email, once that email is
+					verified (always for Google and GitHub, after the mailed link for
+					a password account).
 				</p>
 				<div class="students" role="table" aria-label="Students" data-owners="{{owners|join(',')}}">
 					<div class="student head" role="row">
@@ -108,7 +124,7 @@
 								{% if row.owner %}
 									{{row.owner}} <span class="source">{{row.source}}</span>
 								{% elif row.suggested %}
-									<span class="source">roster says {{row.suggested}}; unverified email, Save to confirm</span>
+									<span class="source">roster says {{row.suggested}} once the email is verified; Save to give it now</span>
 								{% else %}
 									<span class="source">none</span>
 								{% endif %}

@@ -7,6 +7,7 @@ without any GCP credentials.
 
 import base64
 import contextlib
+import datetime
 import importlib
 import os
 import sys
@@ -106,6 +107,34 @@ class FakeDatastore:
         return query
 
 
+class FakeVerifier:
+    """
+    Stands in for verification.IdentityPlatform: records the mails it was
+    asked to send, and reports an address verified once a test says its
+    link was followed.
+    """
+
+    def __init__(self):
+        self.sent = []
+        self.followed = set()
+        self.fail = False
+
+    def _fail(self, message):
+        # imported here: src is importable only after the sys.path line above
+        from src.verification import VerificationError  # pylint: disable=import-outside-toplevel
+        raise VerificationError(f"Identity Platform: {message}")
+
+    def send(self, email, continue_url):
+        if self.fail:
+            self._fail("QUOTA_EXCEEDED")
+        self.sent.append((email, continue_url))
+
+    def verified(self, email):
+        if self.fail:
+            self._fail("UNAVAILABLE")
+        return email in self.followed
+
+
 def load_app(environ=None):
     """
     Import a fresh copy of the app with GCP mocked out.
@@ -122,6 +151,7 @@ def load_app(environ=None):
         sys.modules.pop("src.main", None)
         module = importlib.import_module("src.main")
     module.app.config["TESTING"] = True
+    module.app.config["VERIFIER"] = FakeVerifier()
     return module, fake_compute
 
 
@@ -286,7 +316,8 @@ def test_password_account_is_not_matched_by_email():
     set_mapping(module, {"keren@gmail.com": "keren"})
     client = signed_in_client(module, "keren@gmail.com", subject="email:keren@gmail.com", verified=False)
     body = client.get("/").get_data(as_text=True)
-    assert "No machine is assigned to you" in body
+    assert "verify your email" in body
+    assert "machine-keren" not in body
     instances = set_instance_status(fake_compute, "RUNNING", owner="keren")
     response = client.post("/process", data={"name": "machine-keren", "zone": "us-central1-a"})
     assert response.status_code == 403
@@ -298,7 +329,7 @@ def test_password_account_is_not_admin():
     client = signed_in_client(module, "admin@gmail.com", subject="email:admin@gmail.com", verified=False)
     body = client.get("/").get_data(as_text=True)
     assert "raz" not in body
-    assert "No machine is assigned to you" in body
+    assert "verify your email" in body
 
 
 def test_assigned_owner_wins_for_any_account():
@@ -377,6 +408,7 @@ def test_register_refuses_short_password_and_duplicates():
     assert response.status_code == 400
     assert "error" in response.get_json()
     assert client.post("/auth/email/register", json={"email": "a@example.com", "password": "longenough"}).status_code == 200
+    module.datastore_client.entities[("user", "email:a@example.com")]["verified"] = True
     response = module.app.test_client().post("/auth/email/register", json={"email": "a@example.com", "password": "different1"})
     assert response.status_code == 409
 
@@ -492,7 +524,7 @@ def test_admin_assigns_a_machine_to_a_password_account():
     # clearing it takes the machine away again
     admin.post("/admin/assign", data={"subject": "email:dana@example.com", "owner": ""})
     assert "owner" not in module.datastore_client.entities[("user", "email:dana@example.com")]
-    assert "No machine is assigned to you" in dana.get("/").get_data(as_text=True)
+    assert "machine-raz" not in dana.get("/").get_data(as_text=True)
 
 
 def test_assignment_wins_over_the_roster():
@@ -596,9 +628,108 @@ def test_roster_match_of_a_password_account_is_suggested_not_given():
     set_mapping(module, {"dana@proton.me": "raz"})
     add_user(module, "email:dana@proton.me", "dana@proton.me", verified=False)
     body = signed_in_client(module).get("/").get_data(as_text=True)
-    assert "roster says raz; unverified email, Save to confirm" in body
+    assert "roster says raz once the email is verified; Save to give it now" in body
+    assert "Password (email not verified yet)" in body
     assert 'data-selected="raz"' in body
     dana = module.app.test_client()
     with dana.session_transaction() as session:
         session["subject"] = "email:dana@proton.me"
-    assert "No machine is assigned to you" in dana.get("/").get_data(as_text=True)
+    body = dana.get("/").get_data(as_text=True)
+    assert "verify your email" in body
+    assert "machine-raz" not in body
+
+
+# ─── email verification ─────────────────────────────────────────────────────
+
+def register(client, email="dana@proton.me", password="longenough"):
+    return client.post("/auth/email/register", json={"email": email, "password": password})
+
+
+def test_register_mails_a_verification_link():
+    module, _fake_compute = load_app()
+    client = module.app.test_client()
+    assert register(client).status_code == 200
+    assert module.app.config["VERIFIER"].sent == [("dana@proton.me", "http://localhost/")]
+    body = client.get("/").get_data(as_text=True)
+    assert "We mailed a verification link to dana@proton.me." in body
+    assert "Send again" in body
+
+
+def test_verified_password_account_gets_its_roster_machine():
+    module, _fake_compute = load_app()
+    set_mapping(module, {"dana@proton.me": "raz"})
+    client = module.app.test_client()
+    register(client)
+    assert "machine-raz" not in client.get("/").get_data(as_text=True)
+    module.app.config["VERIFIER"].followed.add("dana@proton.me")
+    body = client.get("/").get_data(as_text=True)
+    assert "Your email is verified." in body
+    assert "machine-raz" in body
+    assert "Send again" not in body
+    assert module.datastore_client.entities[("user", "email:dana@proton.me")]["verified"] is True
+
+
+def test_verified_password_account_can_be_admin():
+    module, _fake_compute = load_app(ADMIN)
+    client = module.app.test_client()
+    register(client, "admin@gmail.com")
+    module.app.config["VERIFIER"].followed.add("admin@gmail.com")
+    assert "All machines" in client.get("/").get_data(as_text=True)
+
+
+def test_resend_is_paced():
+    module, _fake_compute = load_app()
+    client = module.app.test_client()
+    register(client)
+    client.get("/")
+    response = client.post("/auth/verify/resend")
+    assert response.status_code == 302
+    assert "less than a minute ago" in client.get("/").get_data(as_text=True)
+    assert len(module.app.config["VERIFIER"].sent) == 1
+    entity = module.datastore_client.entities[("user", "email:dana@proton.me")]
+    entity["verification_sent"] -= datetime.timedelta(minutes=2)
+    client.post("/auth/verify/resend")
+    assert len(module.app.config["VERIFIER"].sent) == 2
+
+
+def test_resend_only_for_unverified_password_accounts():
+    module, _fake_compute = load_app()
+    assert module.app.test_client().post("/auth/verify/resend").status_code == 302
+    client = signed_in_client(module, "keren@gmail.com")
+    client.post("/auth/verify/resend")
+    assert module.app.config["VERIFIER"].sent == []
+
+
+def test_failed_mail_still_creates_the_account():
+    module, _fake_compute = load_app()
+    module.app.config["VERIFIER"].fail = True
+    client = module.app.test_client()
+    assert register(client).status_code == 200
+    body = client.get("/").get_data(as_text=True)
+    assert "could not be sent" in body
+    assert "Signed in as dana@proton.me" in body
+    assert "verification_sent" not in module.datastore_client.entities[("user", "email:dana@proton.me")]
+
+
+def test_registering_again_replaces_an_unverified_account():
+    """An unverified account proves nothing, so it cannot keep an address (or an assignment) from its owner."""
+    module, _fake_compute = load_app()
+    register(module.app.test_client(), password="squatter1")
+    module.datastore_client.entities[("user", "email:dana@proton.me")]["owner"] = "raz"
+    client = module.app.test_client()
+    assert register(client, password="realowner").status_code == 200
+    stored = module.datastore_client.entities[("user", "email:dana@proton.me")]
+    assert "owner" not in stored
+    # the second registration came within the minute: no second mail, the first link still serves
+    assert len(module.app.config["VERIFIER"].sent) == 1
+    client.post("/auth/logout")
+    assert client.post("/auth/email/login", json={"email": "dana@proton.me", "password": "squatter1"}).status_code == 401
+    assert client.post("/auth/email/login", json={"email": "dana@proton.me", "password": "realowner"}).status_code == 200
+
+
+def test_failed_verification_check_counts_as_not_yet():
+    module, _fake_compute = load_app()
+    client = module.app.test_client()
+    register(client)
+    module.app.config["VERIFIER"].fail = True
+    assert "verify your email" in client.get("/").get_data(as_text=True)

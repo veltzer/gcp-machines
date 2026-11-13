@@ -45,7 +45,8 @@ the accounts live in Datastore (kind `user`, see `src/users.py`):
   `/auth/oauth/github` and its `/callback`. Offered only when
   `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are set.
 - Email and password: `POST /auth/email/register` and
-  `POST /auth/email/login` (JSON). Always available.
+  `POST /auth/email/login` (JSON). Always available. Registering mails a
+  verification link to the address (next section).
 
 Accounts are keyed by how they signed in (`google:<sub>`,
 `github:<id>`, `email:<address>`), never by email, so one address used
@@ -53,17 +54,47 @@ two ways is two accounts. The session cookie holds only that key.
 
 Which machines an account sees:
 
-- An admin (a Google or GitHub account whose email is in
+- An admin (an account with a verified email listed in
   `gcp_admin_emails`) sees and controls every machine.
 - An account an admin assigned an owner to (the `owner` field of its
   `user` entity) controls the machines with that `owner` label.
-- Otherwise a Google or GitHub account is looked up by its email in the
+- Otherwise an account with a verified email is looked up by it in the
   course roster (kind `student`, pushed by `python scripts/iap.py sync`
-  from `data.gi/students.txt`).
-- A password account is never matched by email: the password form does
-  not verify the address, so matching it would let anyone register a
-  student's address and take over that student's machine. It gets a
-  machine only by an admin's assignment.
+  from `data.gi/students.txt`). Google and GitHub accounts are verified
+  from the start, password accounts once their mailed link is followed.
+- An unverified password account is never matched by email, or anyone
+  could register a student's address and take over that student's
+  machine. Registering the same address again replaces it (password,
+  assignment and all), so a stranger cannot squat on an address either;
+  a verified one cannot be replaced.
+
+### Email verification
+
+Google Cloud has no general mail service; the verification mail is sent by
+Identity Platform, used for nothing else (`src/verification.py`). At
+sign-up, and on Send again (`POST /auth/verify/resend`, at most once a
+minute per address), the app creates a throwaway Identity Platform user for
+the address and has Google mail it a `VERIFY_EMAIL` link. The link opens
+Google's page on `veltzer-machines-id.firebaseapp.com`, which marks the
+address verified and offers Continue back to `machines.veltzer.org`. Each
+visit of an unverified account asks Identity Platform whether the address
+is verified yet; once it is, the account is marked verified and the
+throwaway user deleted.
+
+All of it runs on the app's own credentials (the service account has
+`roles/identitytoolkit.admin`), no API key. Google does not let this
+project change the mail's text, sender or the page its link opens (the
+config API answers `EMAIL_TEMPLATE_UPDATE_NOT_ALLOWED`), so those are
+Google's defaults: it comes from `noreply@veltzer-machines-id.firebaseapp.com`.
+
+Setup, done once with the owner's credentials (`T=$(gcloud auth
+print-access-token)`, header `x-goog-user-project: veltzer-machines-id`):
+
+1. `POST https://identitytoolkit.googleapis.com/v2/projects/veltzer-machines-id/identityPlatform:initializeAuth`
+1. `PATCH .../v2/projects/veltzer-machines-id/config?updateMask=signIn.email,authorizedDomains`
+   with `signIn.email.enabled: true` and `machines.veltzer.org` added to
+   `authorizedDomains` (the Continue link must point at an authorized
+   domain).
 
 Creating the clients, which cannot be scripted for a project outside an
 organization:
@@ -105,9 +136,10 @@ python scripts/machines.py stop     # stopped until the students start them
 python scripts/iap.py push-roster   # email -> owner roster to Datastore
 ```
 
-A Google or GitHub sign-in with a roster email sees its machine at once. A
-password account does not (its email is unverified); the Students table
-shows its roster match pre-selected, and Save confirms it.
+A Google or GitHub sign-in with a roster email sees its machine at once, a
+password account once its email is verified. Until then the Students table
+shows its roster match pre-selected, and Save gives it the machine
+without waiting.
 
 ## Local development
 

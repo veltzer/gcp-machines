@@ -19,7 +19,7 @@ from google.cloud import datastore
 from googleapiclient import discovery
 from googleapiclient.errors import HttpError
 
-from src import auth, users
+from src import auth, users, verification
 
 HTML_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "html")
 
@@ -61,10 +61,11 @@ KEY_SECRET_PREFIX = "machine-key-"
 RESOURCE_NAME = re.compile(r"[a-z]([-a-z0-9]{0,61}[a-z0-9])?")
 datastore_client = datastore.Client(project=project_id)
 app.config["DATASTORE"] = datastore_client
+app.config["VERIFIER"] = verification.IdentityPlatform(credentials, project_id)
 
 # Admins see and control every machine; everyone else only their own. Comma
 # separated emails, set in .gcp.conf. Only a verified email counts (a Google
-# or GitHub sign-in), never one typed into the password form.
+# or GitHub sign-in, or a password account whose mailed link was followed).
 ADMIN_EMAILS = {
     email.strip().lower()
     for email in os.environ.get("ADMIN_EMAILS", "").split(",")
@@ -105,7 +106,7 @@ def assignment(user):
     The machine owner label this account may control and where that comes
     from: ("<owner>", "assigned") when an admin assigned it on the Students
     table, ("<owner>", "roster") when the account's verified email is in the
-    course roster, (None, None) otherwise. An unverified (password) account
+    course roster, (None, None) otherwise. An unverified password account
     is never matched by email, or anyone could register a student's address
     and take over their machine.
     """
@@ -146,10 +147,13 @@ def students_table(machines):
         suggested = ""
         if owner is None and not user.get("verified"):
             suggested = email_to_owner().get(user.get("email", "").lower(), "")
+        method = METHODS.get(subject.split(":", 1)[0], subject.split(":", 1)[0])
+        if auth.needs_verification(user):
+            method += " (email not verified yet)"
         rows.append({
             "subject": subject,
             "email": user.get("email", ""),
-            "method": METHODS.get(subject.split(":", 1)[0], subject.split(":", 1)[0]),
+            "method": method,
             "admin": is_admin(user),
             "owner": owner,
             "source": source,
@@ -240,6 +244,7 @@ def root():
     user = auth.current_user()
     if user is None:
         return flask.send_from_directory(HTML_DIR, "index.html")
+    auth.check_verification(user)
     machines = get_machines()
     admin = is_admin(user)
     students = pending = owners = None
@@ -254,6 +259,7 @@ def root():
         machines=machines,
         user=user,
         admin=admin,
+        unverified=auth.needs_verification(user),
         students=students,
         pending=pending,
         owners=owners,
