@@ -4,9 +4,11 @@
 main application
 """
 
-import hmac
 import os
+import secrets
 import time
+import urllib.parse
+import warnings
 
 import flask
 import google.auth
@@ -15,33 +17,52 @@ from google.cloud import datastore
 from googleapiclient import discovery
 from googleapiclient.errors import HttpError
 
+from src import auth
+
+HTML_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "html")
+
+
+def secret_key():
+    """ the key that signs the session cookie: required on Cloud Run, random locally """
+    key = os.environ.get("SECRET_KEY")
+    if key:
+        return key
+    if "K_SERVICE" in os.environ:
+        raise RuntimeError("SECRET_KEY must be set on Cloud Run (see gcp_secrets in .gcp.conf)")
+    warnings.warn("SECRET_KEY not set: sessions will not survive a restart", stacklevel=1)
+    return secrets.token_hex(32)
+
+
 app = flask.Flask(__name__)
+app.config["SECRET_KEY"] = secret_key()
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+# Lax keeps the cookie off cross-site POSTs, which is what protects the
+# state-changing forms (/process, /auth/logout) from other sites
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = "K_SERVICE" in os.environ
+# The hostname the service is meant to be reached on; empty in development.
+app.config["CANONICAL_HOST"] = os.environ.get("CANONICAL_HOST", "")
+auth.configure(app)
 
 
 credentials, project_id = google.auth.default()
 compute = discovery.build("compute", "v1", credentials=credentials)
+datastore_client = datastore.Client(project=project_id)
+app.config["DATASTORE"] = datastore_client
 
-# Optional shared secret: when the ACCESS_TOKEN environment variable is set
-# (see gcp_run_args in .gcp.conf), every request must present it as ?token=<value>
-# once and it
-# is then remembered in a cookie. The real protection is Identity-Aware Proxy
-# (see doc/iap.md); once IAP is enabled this token is redundant and can stay
-# unset.
-ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN")
-
-# Admins see and control every machine; students only their own. Comma
-# separated emails, set in .gcp.conf.
+# Admins see and control every machine; everyone else only their own. Comma
+# separated emails, set in .gcp.conf. Only a verified email counts (a Google
+# or GitHub sign-in), never one typed into the password form.
 ADMIN_EMAILS = {
     email.strip().lower()
     for email in os.environ.get("ADMIN_EMAILS", "").split(",")
     if email.strip()
 }
 
-# The student email -> machine owner mapping lives in Datastore (kind
+# The course roster, email -> machine owner label, lives in Datastore (kind
 # "student", key = email), pushed there by `scripts/iap.py sync`. It is
 # cached briefly so roster changes show up without a redeploy while not
 # querying Datastore on every request.
-datastore_client = datastore.Client(project=project_id)
 MAPPING_TTL_SECONDS = 60
 _mapping_cache = {"expiry": 0.0, "mapping": {}}
 
@@ -62,48 +83,57 @@ def email_to_owner():
     return _mapping_cache["mapping"]
 
 
-def is_admin(email):
-    """
-    Admins see and control all machines. A None email means the request came
-    without IAP (local development), which behaves as admin.
-    """
-    return email is None or email.lower() in ADMIN_EMAILS
+def is_admin(user):
+    """ admins see and control all machines """
+    return bool(user.get("verified")) and user.get("email", "").lower() in ADMIN_EMAILS
 
 
-def get_signed_in_user():
-    """ email of the user IAP authenticated, or None when IAP is off """
-    # IAP sends "accounts.google.com:user@example.com"; the header cannot be
-    # spoofed from outside because IAP strips it from incoming requests
-    header = flask.request.headers.get("X-Goog-Authenticated-User-Email", "")
-    if ":" in header:
-        return header.rsplit(":", 1)[-1]
+def owner_of(user):
+    """
+    The machine owner label this account may control, or None. An owner an
+    admin assigned to the account wins; otherwise a verified email is looked
+    up in the roster. An unverified (password) account is never matched by
+    email, or anyone could register a student's address and take over their
+    machine.
+    """
+    if user.get("owner"):
+        return user["owner"]
+    if user.get("verified") and user.get("email"):
+        return email_to_owner().get(user["email"].lower())
     return None
 
 
 @app.before_request
-def require_token():
-    """ reject the request unless it carries the shared token (when one is configured) """
-    if ACCESS_TOKEN is None:
-        return
-    supplied = flask.request.args.get("token") or flask.request.cookies.get("token") or ""
-    if not hmac.compare_digest(supplied, ACCESS_TOKEN):
-        flask.abort(403, "Missing or wrong access token. Ask your instructor for the full link.")
+def redirect_to_canonical_host():
+    """
+    Cloud Run also answers on its run.app hostnames. Send those to the custom
+    domain first, so there is one origin for the session cookie and the
+    sign-in providers only ever see the callback URL registered with them.
+    The health check is exempt so probes addressing the service keep working.
+    """
+    host = app.config["CANONICAL_HOST"]
+    if not host or flask.request.host == host or flask.request.path == "/app/health":
+        return None
+    url = urllib.parse.urlsplit(flask.request.url)._replace(scheme="https", netloc=host).geturl()
+    return flask.redirect(url, code=308)
 
 
-@app.after_request
-def remember_token(response):
-    """ persist a token that arrived in the url into a cookie """
-    if ACCESS_TOKEN is not None and response.status_code < 400:
-        supplied = flask.request.args.get("token")
-        if supplied and supplied != flask.request.cookies.get("token"):
-            response.set_cookie(
-                "token",
-                supplied,
-                max_age=60 * 60 * 24 * 90,
-                secure=flask.request.is_secure,
-                httponly=True,
-            )
-    return response
+@app.route("/app/health", methods=["GET"])
+def health():
+    return "ok"
+
+
+@app.route("/api/config", methods=["GET"])
+def api_config():
+    """ what the sign-in page needs: which ways in this server offers """
+    return flask.jsonify({
+        "signed_in": auth.current_user() is not None,
+        "google_client_id": auth.google_client_id(),
+        "dev_login": auth.dev_login_enabled(),
+        "password_min_length": auth.PASSWORD_MIN_LENGTH,
+        # every provider the page knows about, so it can grey out the ones this server cannot offer
+        "providers": {key: p.configured for key, p in auth.OAUTH_PROVIDERS.items()},
+    })
 
 
 def get_machines():
@@ -139,16 +169,20 @@ def get_machines():
 
 @app.route("/", methods=["GET"])
 def root():
-    """ url to see the machines the signed-in user may control """
-    user = get_signed_in_user()
+    """ the sign-in page, or the machines the signed-in user may control """
+    user = auth.current_user()
+    if user is None:
+        return flask.send_from_directory(HTML_DIR, "index.html")
     machines = get_machines()
-    if not is_admin(user):
-        owner = email_to_owner().get(user.lower())
+    admin = is_admin(user)
+    if not admin:
+        owner = owner_of(user)
         machines = [m for m in machines if owner is not None and m["owner"] == owner]
-    return flask.render_template("machines.html", machines=machines, user=user)
+    return flask.render_template("machines.html", machines=machines, user=user, admin=admin)
 
 
 @app.route("/process", methods=["POST"])
+@auth.login_required
 def process():
     """ toggle the state of a single machine """
     # pylint: disable=no-member
@@ -157,10 +191,10 @@ def process():
     # decide what to do from the live status, not from whatever the browser
     # showed when the page was last rendered
     instance = compute.instances().get(project=project_id, zone=zone, instance=name).execute()
-    user = get_signed_in_user()
+    user = auth.current_user()
     if not is_admin(user):
         owner = instance.get("labels", {}).get("owner")
-        if owner is None or email_to_owner().get(user.lower()) != owner:
+        if owner is None or owner_of(user) != owner:
             flask.abort(403, "This machine is not yours.")
     status = instance["status"]
     if status == "SUSPENDED":
@@ -202,4 +236,5 @@ def handle_gcp_error(error):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", "8080")))
+    # local development only: the debugger runs code, so never off this machine
+    app.run(debug=True, host="127.0.0.1", port=int(os.environ.get("PORT", "8080")))

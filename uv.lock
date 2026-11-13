@@ -278,10 +278,12 @@ source = { virtual = "." }
 dependencies = [
     { name = "flask" },
     { name = "google-api-python-client" },
+    { name = "google-auth" },
     { name = "google-cloud-datastore" },
     { name = "gunicorn" },
     { name = "markupsafe" },
     { name = "pyclassifiers" },
+    { name = "requests" },
 ]
 
 [package.dev-dependencies]
@@ -295,10 +297,12 @@ dev = [
 requires-dist = [
     { name = "flask" },
     { name = "google-api-python-client" },
+    { name = "google-auth" },
     { name = "google-cloud-datastore" },
     { name = "gunicorn" },
     { name = "markupsafe" },
     { name = "pyclassifiers" },
+    { name = "requests" },
 ]
 
 [package.metadata.requires-dev]

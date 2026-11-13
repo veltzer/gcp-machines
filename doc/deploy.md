@@ -11,11 +11,10 @@ gcloud_run_deploy.sh
 
 The script (from the utils-bash repo) wraps `gcloud run deploy --source .`:
 Cloud Build builds the `Dockerfile` and the new revision replaces the old
-one with no downtime. Everything the old `app.yaml` used to declare
-(environment variables, scaling, the service account) lives in `.gcp.conf`
-as `gcp_run_args`, so a redeploy always converges the service to what that
-file says. IAP enablement is a service property and survives redeploys
-untouched.
+one with no downtime. Everything the service needs (environment variables,
+secrets, scaling, the service account) lives in `.gcp.conf` as
+`gcp_run_args`, so a redeploy always converges the service to what that
+file says.
 
 ## One-time project setup
 
@@ -23,22 +22,79 @@ untouched.
    `gcloud_service_set.sh` (utils-bash) enables what is missing;
    `gcloud_service_set.sh --check` only reports the drift.
 1. Create the app's service account if it does not exist yet:
-   `python scripts/service_account.py create`.
+   `python scripts/service_account.py create` (or `grant` to add a role
+   to an existing one).
+1. Create the secrets: `gcloud_project_setup.sh` (utils-bash) reads
+   `gcp_secrets` in `.gcp.conf` and creates the ones that are missing,
+   among them the session cookie key. Safe to re-run.
+1. Create the sign-in clients (next section) and paste their IDs into
+   `.gcp.conf`. Without them the app still works with email and password.
 1. Deploy: `gcloud_run_deploy.sh`.
-1. Put IAP in front of the service — see `doc/iap.md`; the service is
-   deployed `--no-allow-unauthenticated`, so until IAP is on (and its
-   service agent holds `roles/run.invoker`) nobody but the project owners
-   can reach it.
-1. Grant access: `python scripts/iap.py sync`.
+
+## Sign-in
+
+Anyone can create an account. The sign-in page (`src/html/index.html`,
+`src/static/app.js`, the scene in `src/static/scene.svg`) follows
+gcp-myworld's and offers three ways in; `src/auth.py` does the work and
+the accounts live in Datastore (kind `user`, see `src/users.py`):
+
+- Google: the Google Identity Services button in redirect mode. Google
+  POSTs a signed ID token to `/auth/login`; the server checks the CSRF
+  cookie and verifies the token against `GOOGLE_CLIENT_ID`.
+- GitHub: the OAuth 2.0 authorization code flow through
+  `/auth/oauth/github` and its `/callback`. Offered only when
+  `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are set.
+- Email and password: `POST /auth/email/register` and
+  `POST /auth/email/login` (JSON). Always available.
+
+Accounts are keyed by how they signed in (`google:<sub>`,
+`github:<id>`, `email:<address>`), never by email, so one address used
+two ways is two accounts. The session cookie holds only that key.
+
+Which machines an account sees:
+
+- An admin (a Google or GitHub account whose email is in
+  `gcp_admin_emails`) sees and controls every machine.
+- An account an admin assigned an owner to (the `owner` field of its
+  `user` entity) controls the machines with that `owner` label.
+- Otherwise a Google or GitHub account is looked up by its email in the
+  course roster (kind `student`, pushed by `python scripts/iap.py sync`
+  from `data.gi/students.txt`).
+- A password account is never matched by email: the password form does
+  not verify the address, so matching it would let anyone register a
+  student's address and take over that student's machine. It gets a
+  machine only by an admin's assignment.
+
+Creating the clients, which cannot be scripted for a project outside an
+organization:
+
+1. Google: in the console, `APIs & Services -> Credentials -> Create
+   credentials -> OAuth client ID`, type `Web application`. Authorized
+   JavaScript origins: `https://machines.veltzer.org` and
+   `http://localhost:8080`. Authorized redirect URIs:
+   `https://machines.veltzer.org/auth/login` and
+   `http://localhost:8080/auth/login`. Paste the client ID into
+   `gcp_oauth_client_id`. The consent screen is the External one already
+   configured for IAP.
+1. GitHub: `Settings -> Developer settings -> OAuth Apps -> New OAuth
+   App`, homepage `https://machines.veltzer.org`, callback
+   `https://machines.veltzer.org/auth/oauth/github/callback`. Paste the
+   client ID into `gcp_github_client_id`, store the client secret with
+   `pass insert keys/github.com.machines-oauth`, add that entry to
+   `gcp_secrets` and `GITHUB_CLIENT_SECRET` to `--set-secrets` in
+   `.gcp.conf`, and re-run `gcloud_project_setup.sh`.
 
 ## Local development
 
 ```bash
-python src/main.py
+MACHINES_DEV_LOGIN=1 python -m src.main
 ```
 
-Runs the Flask dev server on port 8080 with your local credentials; without
-IAP headers the app behaves as admin.
+Run it from the repository root. It serves on `http://localhost:8080` with
+your local credentials (so it shows the real machines and uses the real
+Datastore), and the sign-in page also offers a development login that
+signs in as any email, treated as verified. The development login is never
+available on Cloud Run.
 
 ## Custom domain
 
@@ -52,8 +108,9 @@ gcloud beta run domain-mappings create --service machines \
 
 backed by a Cloudflare DNS record `machines CNAME ghs.googlehosted.com`
 that must stay **DNS only** (not proxied), or Google cannot renew the
-managed certificate. IAP works through the mapping unchanged. The
-`run.app` URLs keep working as well.
+managed certificate. The app redirects the `run.app` URLs to this domain
+(`CANONICAL_HOST`), so it is the only origin the sign-in providers need
+to know.
 
 ## Migration notes (App Engine -> Cloud Run)
 

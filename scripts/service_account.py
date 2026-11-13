@@ -35,6 +35,9 @@ ROLES = [
     # securityReviewer lets the SA read (but not modify) the project IAM
     # policy, which is what the `roles` command and `machines.py` need.
     "roles/iam.securityReviewer",
+    # reads the session cookie key (and OAuth client secrets) that
+    # gcp_secrets in .gcp.conf puts in Secret Manager
+    "roles/secretmanager.secretAccessor",
 ]
 
 def get_iam_client():

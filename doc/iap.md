@@ -1,5 +1,12 @@
 # Protecting the app with Identity-Aware Proxy (IAP)
 
+> **History.** The app now does its own sign-in (Google, GitHub, email and
+> password; see "Sign-in" in `doc/deploy.md`) so that people without a
+> Google account can sign up, and IAP is off. What stays in use from this
+> page is the roster: `python scripts/iap.py sync` still pushes the
+> email-to-owner mapping from `data.gi/students.txt` to Datastore; its IAP
+> grants no longer gate anything.
+
 IAP sits in front of the Cloud Run service and forces a Google sign-in before
 any request reaches the app. Access is granted per email address. Enabling it
 is a one-time manual step; day-to-day student management is done with

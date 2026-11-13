@@ -11,6 +11,8 @@ cloudquotas.googleapis.com
 run.googleapis.com
 iap.googleapis.com
 oslogin.googleapis.com
+# the session cookie key and OAuth client secrets (gcp_secrets in .gcp.conf)
+secretmanager.googleapis.com
 # source deploys (`gcloud run deploy --source`) build the container with
 # Cloud Build and store it in Artifact Registry
 cloudbuild.googleapis.com

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>Machines</title>
+		<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+		<link rel="stylesheet" href="/static/style.css">
+		<script src="/static/app.js" defer></script>
+	</head>
+	<body data-page="index" class="landing">
+		<div class="landing-grid">
+			<aside class="scene">
+				<img class="scene-art" src="/static/scene.svg" alt="">
+				<div class="scene-copy">
+					<p class="scene-kicker">Linux · Virtualization · Cloud labs</p>
+					<h2>Your own machine in the cloud, one click away.</h2>
+					<p>
+						Start it when class begins, suspend it when you are done,
+						and pick up exactly where you left off.
+					</p>
+				</div>
+			</aside>
+			<main class="panel">
+				<div class="card">
+					<a class="brand brand-lg" href="/">
+						<img class="brand-mark" src="/static/favicon.svg" alt="">
+						Machines
+					</a>
+					<h1>Welcome</h1>
+					<p class="lede">Sign in, or create an account, to reach your machine.</p>
+					<p id="error" class="warning" hidden></p>
+
+					<div class="google">
+						<div id="signin" class="gsi-slot"></div>
+						<div id="signin-loading" class="gsi-placeholder" aria-hidden="true"></div>
+						<p id="signin-missing" class="hint" hidden>
+							Google sign-in is not configured on this server (GOOGLE_CLIENT_ID is not set).
+						</p>
+					</div>
+
+					<div class="divider"><span>or with your email</span></div>
+
+					<form id="email-form" class="email-form" novalidate>
+						<label class="field">
+							<span>Email</span>
+							<input name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
+						</label>
+						<label class="field">
+							<span>Password</span>
+							<span class="password-field">
+								<input name="password" type="password" autocomplete="current-password" placeholder="••••••••" required>
+								<button type="button" id="toggle-password" class="link">Show</button>
+							</span>
+						</label>
+						<button type="submit" id="email-submit" class="primary">Sign in</button>
+						<p class="switch">
+							<span id="email-switch-text">New here?</span>
+							<button type="button" id="email-mode" class="link">Create an account</button>
+						</p>
+					</form>
+
+					<div class="divider"><span>or</span></div>
+
+					<div class="providers">
+						<a class="provider" data-provider="github" href="/auth/oauth/github">
+							<img src="/static/github.svg" alt="">
+							<span>Continue with GitHub</span>
+						</a>
+					</div>
+
+					<form id="dev-login" class="dev-login" method="post" action="/auth/dev-login" hidden>
+						<label for="dev-email">Development login (no Google):</label>
+						<div class="dev-row">
+							<input id="dev-email" name="email" type="email" placeholder="you@example.com" required>
+							<button type="submit">Sign in</button>
+						</div>
+					</form>
+				</div>
+				<footer class="footer">
+					<p>&copy; 2026 Mark Veltzer &middot; <a href="https://veltzer.org">veltzer.org</a></p>
+				</footer>
+			</main>
+		</div>
+	</body>
+</html>
