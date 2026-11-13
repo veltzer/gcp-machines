@@ -6,6 +6,7 @@ and delete virtual machines, and to reach them over ssh (connect, tunnel).
 """
 
 import argparse
+import base64
 import json
 import os
 import socket
@@ -13,7 +14,10 @@ import sys
 import time
 
 import google.auth
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from googleapiclient import discovery
+from googleapiclient.errors import HttpError
 
 # Always read the student list from data.gi/students.txt at the repo root.
 # Each line is "<owner-name> [email]"; this script only uses the owner name,
@@ -207,10 +211,79 @@ def wait_for_operation_quiet(project_id, compute, zone, op_name):
             return
         time.sleep(1)
 
-def create_machine(project_id, compute, number, zone, owner, ssh_key):
+# The boot image: the Ubuntu 22.04 LTS family, so every machine starts from
+# the latest patched 22.04 image (a pinned dated image gets deprecated and
+# eventually deleted by Google).
+BOOT_IMAGE = "projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts"
+
+# Every machine gets its own ssh key pair at creation. The private key lives
+# only in Secret Manager, in the secret KEY_SECRET_PREFIX + <instance name>,
+# from where the web app hands it to the machine's student (keep in sync
+# with KEY_SECRET_PREFIX in src/main.py). It is never written to disk here.
+KEY_SECRET_PREFIX = "machine-key-"
+
+def get_secrets_client():
+    """Initializes and returns a Secret Manager API client."""
+    credentials, _ = google.auth.default()
+    return discovery.build("secretmanager", "v1", credentials=credentials)
+
+def generate_key_pair(comment):
+    """
+    A new ed25519 ssh key pair: (private key in OpenSSH format, public key
+    line ending in comment).
+    """
+    key = Ed25519PrivateKey.generate()
+    private = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.OpenSSH,
+        serialization.NoEncryption(),
+    ).decode()
+    public = key.public_key().public_bytes(
+        serialization.Encoding.OpenSSH,
+        serialization.PublicFormat.OpenSSH,
+    ).decode()
+    return private, f"{public} {comment}"
+
+def store_machine_key(project_id, secrets, instance_name, owner, private_key):
+    """
+    Stores a machine's private key as the newest version of its secret,
+    creating the secret on first use.
+    """
+    secret_id = KEY_SECRET_PREFIX + instance_name
+    parent = f"projects/{project_id}"
+    try:
+        secrets.projects().secrets().create(
+            parent=parent,
+            secretId=secret_id,
+            body={
+                "replication": {"automatic": {}},
+                "labels": {"owner": owner, "instance": instance_name},
+            },
+        ).execute()
+    except HttpError as error:
+        if error.resp.status != 409:  # 409: it exists already, add a version
+            raise
+    secrets.projects().secrets().addVersion(
+        parent=f"{parent}/secrets/{secret_id}",
+        body={"payload": {"data": base64.b64encode(private_key.encode()).decode()}},
+    ).execute()
+
+def delete_machine_keys(project_id, secrets, instance_names):
+    """ Deletes the key secrets of the given instances, where they exist. """
+    for name in instance_names:
+        secret = f"projects/{project_id}/secrets/{KEY_SECRET_PREFIX}{name}"
+        try:
+            secrets.projects().secrets().delete(name=secret).execute()
+            print(f"Deleted key of {name}.")
+        except HttpError as error:
+            if error.resp.status != 404:
+                raise
+
+def create_machine(project_id, compute, number, zone, owner, ssh_keys):
     """
     Fires off creation of a single virtual machine instance and returns the
     (zone, operation-name) pair for the insert operation. Does not wait.
+    ssh_keys are the public key lines the ubuntu user accepts.
     """
     print(f"Creating instance-{number} in {zone} for {owner}...")
     config = {
@@ -220,12 +293,15 @@ def create_machine(project_id, compute, number, zone, owner, ssh_key):
             "network": "global/networks/default",
             "accessConfigs": [{"name": "External NAT", "type": "ONE_TO_ONE_NAT"}],
         }],
-        "metadata": {"items": [{"key": "ssh-keys", "value": f"ubuntu:{ssh_key}"}]},
+        "metadata": {"items": [{
+            "key": "ssh-keys",
+            "value": "\n".join(f"{DEFAULT_USER}:{key}" for key in ssh_keys),
+        }]},
         "disks": [{
             "boot": True,
             "autoDelete": True,
             "initializeParams": {
-                "sourceImage": "projects/ubuntu-os-cloud/global/images/ubuntu-2204-jammy-v20240720",
+                "sourceImage": BOOT_IMAGE,
                 "diskSizeGb": 10,
             },
         }],
@@ -291,7 +367,7 @@ def continue_all_machines(project_id, compute, wait_mode):
 
 def delete_all_machines(project_id, compute, wait_mode):
     """
-    Deletes all compute instances in the project.
+    Deletes all compute instances in the project, and their ssh key secrets.
 
     wait_mode (WAIT_NONE / WAIT_EACH / WAIT_ALL) controls how delete operations
     are waited on; see the WAIT_* constants. Waiting matters here because
@@ -303,9 +379,11 @@ def delete_all_machines(project_id, compute, wait_mode):
         return
     instances = compute.instances().aggregatedList(project=project_id).execute()
     operations = []
+    deleted = []
     for zone, zone_data in instances.get("items", {}).items():
         zone_name = zone.split("/")[-1]
         for instance in zone_data.get("instances", []):
+            deleted.append(instance["name"])
             print(f"Deleting {instance['name']} in {zone_name}...")
             operation = compute.instances().delete(
                 project=project_id, zone=zone_name, instance=instance["name"]
@@ -317,6 +395,8 @@ def delete_all_machines(project_id, compute, wait_mode):
 
     if wait_mode == WAIT_ALL:
         wait_for_operations(project_id, compute, operations, "be deleted")
+    # the keys go with their machines: a later machine of the same name gets a new one
+    delete_machine_keys(project_id, get_secrets_client(), deleted)
 
 # Cache of per-region CPU quota limit, keyed by region name. Populated lazily
 # by zone_machine_limit so zones sharing a region don't re-fetch it.
@@ -444,13 +524,20 @@ def create_command(args, project_id, compute):
         )
 
     # The instance number is derived from the line position in the file.
+    # Each machine gets its own key pair, stored before the machine is
+    # created so there is never a machine whose key is lost. Its ubuntu user
+    # also accepts the admin key, so connect and tunnel keep working.
     # Fire each insert; in WAIT_EACH mode block on it before the next, in
     # WAIT_ALL mode collect the operations and wait for all at the end, and
     # in WAIT_NONE mode never wait.
+    secrets = get_secrets_client()
     operations = []
     for number, (owner, zone) in enumerate(assignments):
+        instance_name = f"instance-{number}"
+        private_key, public_key = generate_key_pair(f"{owner}@{instance_name}")
+        store_machine_key(project_id, secrets, instance_name, owner, private_key)
         zone_name, op_name = create_machine(
-            project_id, compute, number, zone, owner, ssh_key
+            project_id, compute, number, zone, owner, [ssh_key, public_key]
         )
         if args.wait_mode == WAIT_EACH:
             wait_for_operation(project_id, compute, zone_name, op_name, "come up")

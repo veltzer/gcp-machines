@@ -26,6 +26,13 @@
 		</header>
 		<main class="content">
 			<h1>{% if admin %}All machines{% else %}Your machine{% endif %}</h1>
+			{% if machines and not admin %}
+				<p class="hint-left">
+					Start your machine, download its key once, then connect with the
+					ssh command shown on the card (on Linux and macOS first run
+					<code>chmod 600</code> on the key file). Suspend it when you are done.
+				</p>
+			{% endif %}
 			{% if machines|length == 0 %}
 				<p class="empty">
 					No machine is assigned to you. Contact your instructor.
@@ -41,6 +48,12 @@
 								owner {{machine.owner}} &middot; {{machine.zone}} &middot;
 								<span class="machine-ip">{{machine.ip}}</span>
 							</div>
+							{% if machine.ip != "N/A" %}
+								<div class="machine-ssh">
+									<code>ssh -i {{machine.name}}.key ubuntu@{{machine.ip}}</code>
+									<button type="button" class="link" data-copy="ssh -i {{machine.name}}.key ubuntu@{{machine.ip}}">Copy</button>
+								</div>
+							{% endif %}
 							{% if admin %}
 								<div class="machine-meta">
 									{% if machine.students %}
@@ -53,6 +66,11 @@
 						</div>
 						<div class="machine-actions">
 							<button type="button" class="quiet" data-copy="{{machine.ip}}">Copy IP</button>
+							<form method="get" action="/key">
+								<input type="hidden" name="name" value="{{machine.name}}">
+								<input type="hidden" name="zone" value="{{machine.zone}}">
+								<button type="submit" class="quiet" title="The private key that logs you in to this machine">Download key</button>
+							</form>
 							<form method="post" action="/process">
 								<input type="hidden" name="name" value="{{machine.name}}">
 								<input type="hidden" name="zone" value="{{machine.zone}}">
@@ -89,6 +107,8 @@
 							<span role="cell">
 								{% if row.owner %}
 									{{row.owner}} <span class="source">{{row.source}}</span>
+								{% elif row.suggested %}
+									<span class="source">roster says {{row.suggested}}; unverified email, Save to confirm</span>
 								{% else %}
 									<span class="source">none</span>
 								{% endif %}
@@ -96,7 +116,7 @@
 							<div role="cell">
 								<form method="post" action="/admin/assign" class="assign">
 									<input type="hidden" name="subject" value="{{row.subject}}">
-									<select name="owner" aria-label="Machine for {{row.email}}" data-selected="{{row.assigned}}">
+									<select name="owner" aria-label="Machine for {{row.email}}" data-selected="{{row.assigned or row.suggested}}">
 										<option value="">roster / none</option>
 									</select>
 									<button type="submit" class="quiet">Save</button>

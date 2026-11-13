@@ -4,7 +4,9 @@
 main application
 """
 
+import base64
 import os
+import re
 import secrets
 import time
 import urllib.parse
@@ -47,6 +49,16 @@ auth.configure(app)
 
 credentials, project_id = google.auth.default()
 compute = discovery.build("compute", "v1", credentials=credentials)
+secret_manager = discovery.build("secretmanager", "v1", credentials=credentials)
+
+# Each machine's private ssh key lives in Secret Manager under this prefix
+# plus the instance name, put there by `scripts/machines.py create` (keep in
+# sync with KEY_SECRET_PREFIX there).
+KEY_SECRET_PREFIX = "machine-key-"
+
+# What Compute Engine allows in instance and zone names; checked before a
+# name goes into an API path.
+RESOURCE_NAME = re.compile(r"[a-z]([-a-z0-9]{0,61}[a-z0-9])?")
 datastore_client = datastore.Client(project=project_id)
 app.config["DATASTORE"] = datastore_client
 
@@ -129,6 +141,11 @@ def students_table(machines):
         owner, source = assignment(user)
         if user.get("verified"):
             signed_up.add(user.get("email", "").lower())
+        # The roster's machine for an account whose email it cannot trust
+        # (a password account): offered to the admin to confirm, never given.
+        suggested = ""
+        if owner is None and not user.get("verified"):
+            suggested = email_to_owner().get(user.get("email", "").lower(), "")
         rows.append({
             "subject": subject,
             "email": user.get("email", ""),
@@ -137,6 +154,7 @@ def students_table(machines):
             "owner": owner,
             "source": source,
             "assigned": user.get("owner") or "",
+            "suggested": suggested,
         })
     rows.sort(key=lambda row: (row["email"], row["method"]))
     pending = [
@@ -242,6 +260,43 @@ def root():
     )
 
 
+def get_instance_for(user, name, zone):
+    """
+    The live instance, if the user may control it: an admin any, a student
+    only one whose owner label is their assignment. Aborts otherwise.
+    """
+    # pylint: disable=no-member
+    if not RESOURCE_NAME.fullmatch(name) or not RESOURCE_NAME.fullmatch(zone):
+        flask.abort(400, "Bad machine name or zone.")
+    instance = compute.instances().get(project=project_id, zone=zone, instance=name).execute()
+    if not is_admin(user):
+        owner = instance.get("labels", {}).get("owner")
+        if owner is None or owner_of(user) != owner:
+            flask.abort(403, "This machine is not yours.")
+    return instance
+
+
+@app.route("/key", methods=["GET"])
+@auth.login_required
+def download_key():
+    """ the machine's private ssh key, as a file, for its student or an admin """
+    # pylint: disable=no-member
+    name = flask.request.args["name"]
+    get_instance_for(auth.current_user(), name, flask.request.args["zone"])
+    secret = f"projects/{project_id}/secrets/{KEY_SECRET_PREFIX}{name}/versions/latest"
+    try:
+        version = secret_manager.projects().secrets().versions().access(name=secret).execute()
+    except HttpError as error:
+        if error.resp.status == 404:
+            flask.abort(404, "This machine has no downloadable key. Ask your instructor.")
+        raise
+    response = flask.Response(base64.b64decode(version["payload"]["data"]), mimetype="application/octet-stream")
+    response.headers["Content-Disposition"] = f'attachment; filename="{name}.key"'
+    # a private key: never kept by a browser cache or a proxy
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.route("/admin/assign", methods=["POST"])
 @auth.login_required
 def assign():
@@ -269,12 +324,7 @@ def process():
     zone = flask.request.form["zone"]
     # decide what to do from the live status, not from whatever the browser
     # showed when the page was last rendered
-    instance = compute.instances().get(project=project_id, zone=zone, instance=name).execute()
-    user = auth.current_user()
-    if not is_admin(user):
-        owner = instance.get("labels", {}).get("owner")
-        if owner is None or owner_of(user) != owner:
-            flask.abort(403, "This machine is not yours.")
+    instance = get_instance_for(auth.current_user(), name, zone)
     status = instance["status"]
     if status == "SUSPENDED":
         compute.instances().resume(project=project_id, zone=zone, instance=name).execute()

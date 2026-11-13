@@ -376,6 +376,13 @@ def main():
     )
     sync_parser.set_defaults(func=lambda args, ctx: sync(ctx["iap"], ctx["resource"], args.prune, ctx["project_id"]))
 
+    # Push-roster command
+    push_parser = subparsers.add_parser(
+        "push-roster",
+        help=f"Push the email -> owner roster from {STUDENTS_FILE} to Datastore for the app (no IAP grants).",
+    )
+    push_parser.set_defaults(func=lambda args, ctx: push_mapping(ctx["project_id"]))
+
     # Consent-status command
     consent_status_parser = subparsers.add_parser(
         "consent-status",

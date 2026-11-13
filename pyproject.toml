@@ -17,6 +17,8 @@ dependencies = [
 dev = [
     "pyrefly",
     "pytest",
+    # ed25519 ssh key pairs for new machines (scripts/machines.py)
+    "cryptography",
     "ruff",
 ]
 

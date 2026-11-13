@@ -84,6 +84,31 @@ organization:
    `gcp_secrets` and `GITHUB_CLIENT_SECRET` to `--set-secrets` in
    `.gcp.conf`, and re-run `gcloud_project_setup.sh`.
 
+## Machines and their keys
+
+`python scripts/machines.py create` makes one machine per line of
+`data.gi/students.txt` (`<owner> <email>`), labelled with the owner. Each
+machine gets its own ed25519 key pair: the private key goes straight into
+Secret Manager as `machine-key-<instance>` (never to disk), the public key
+onto the machine for the `ubuntu` user, next to the admin key
+`~/.ssh/id_machines.pub` that `connect` and `tunnel` use. A student
+downloads their machine's key from its card (`GET /key`, allowed only to
+the machine's student and admins) and connects with the `ssh` command
+shown there. `python scripts/machines.py delete` removes the key secrets
+together with the machines.
+
+To get a course ready:
+
+```bash
+python scripts/machines.py create   # machines and keys
+python scripts/machines.py stop     # stopped until the students start them
+python scripts/iap.py push-roster   # email -> owner roster to Datastore
+```
+
+A Google or GitHub sign-in with a roster email sees its machine at once. A
+password account does not (its email is unverified); the Students table
+shows its roster match pre-selected, and Save confirms it.
+
 ## Local development
 
 ```bash

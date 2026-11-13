@@ -5,6 +5,7 @@ google.auth and the compute API client are mocked out so these tests run
 without any GCP credentials.
 """
 
+import base64
 import contextlib
 import importlib
 import os
@@ -13,6 +14,7 @@ import unittest.mock
 
 import pytest
 from google.cloud import datastore
+from googleapiclient.errors import HttpError
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -520,3 +522,83 @@ def test_assign_refuses_unknown_machines_and_accounts():
     admin = signed_in_client(module)
     assert admin.post("/admin/assign", data={"subject": "email:dana@example.com", "owner": "nobody"}).status_code == 400
     assert admin.post("/admin/assign", data={"subject": "email:ghost@example.com", "owner": "raz"}).status_code == 404
+
+
+# ─── machine keys ────────────────────────────────────────────────────────────
+
+def set_key(fake_compute, private_key):
+    """Makes the fake Secret Manager hold a machine key; returns the access mock."""
+    access = fake_compute.projects.return_value.secrets.return_value.versions.return_value.access
+    access.return_value.execute.return_value = {
+        "payload": {"data": base64.b64encode(private_key.encode()).decode()},
+    }
+    return access
+
+
+def test_student_downloads_own_machine_key():
+    module, fake_compute = load_app(ADMIN)
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    set_instance_status(fake_compute, "TERMINATED", owner="keren")
+    access = set_key(fake_compute, "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n")
+    client = signed_in_client(module, "keren@gmail.com")
+    response = client.get("/key?name=machine-keren&zone=us-central1-a")
+    assert response.status_code == 200
+    assert response.get_data(as_text=True).startswith("-----BEGIN OPENSSH PRIVATE KEY-----")
+    assert response.headers["Content-Disposition"] == 'attachment; filename="machine-keren.key"'
+    assert response.headers["Cache-Control"] == "no-store"
+    access.assert_called_with(name="projects/test-project/secrets/machine-key-machine-keren/versions/latest")
+
+
+def test_student_cannot_download_others_key():
+    module, fake_compute = load_app(ADMIN)
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    set_instance_status(fake_compute, "RUNNING", owner="raz")
+    access = set_key(fake_compute, "secret")
+    access.reset_mock()
+    client = signed_in_client(module, "keren@gmail.com")
+    assert client.get("/key?name=machine-raz&zone=us-central1-a").status_code == 403
+    access.assert_not_called()
+
+
+def test_key_download_requires_sign_in_and_sane_names():
+    module, fake_compute = load_app(ADMIN)
+    set_instance_status(fake_compute, "RUNNING", owner="keren")
+    access = set_key(fake_compute, "secret")
+    access.reset_mock()
+    assert module.app.test_client().get("/key?name=machine-keren&zone=us-central1-a").status_code == 302
+    admin = signed_in_client(module)
+    assert admin.get("/key?name=../../x&zone=us-central1-a").status_code == 400
+    assert admin.get("/key?name=machine-keren&zone=us/central").status_code == 400
+    access.assert_not_called()
+    assert admin.get("/key?name=machine-keren&zone=us-central1-a").status_code == 200
+
+
+def test_machine_without_key_says_so():
+    module, fake_compute = load_app(ADMIN)
+    set_instance_status(fake_compute, "RUNNING", owner="keren")
+    access = fake_compute.projects.return_value.secrets.return_value.versions.return_value.access
+    access.return_value.execute.side_effect = HttpError(unittest.mock.Mock(status=404, reason="Not Found"), b"")
+    response = signed_in_client(module).get("/key?name=machine-keren&zone=us-central1-a")
+    assert response.status_code == 404
+    assert "no downloadable key" in response.get_data(as_text=True)
+
+
+def test_cards_offer_key_and_ssh_command():
+    module, _fake_compute = load_app(ADMIN)
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    body = signed_in_client(module, "keren@gmail.com").get("/").get_data(as_text=True)
+    assert "Download key" in body
+    assert "ssh -i machine-keren.key ubuntu@1.2.3.4" in body
+
+
+def test_roster_match_of_a_password_account_is_suggested_not_given():
+    module, _fake_compute = load_app(ADMIN)
+    set_mapping(module, {"dana@proton.me": "raz"})
+    add_user(module, "email:dana@proton.me", "dana@proton.me", verified=False)
+    body = signed_in_client(module).get("/").get_data(as_text=True)
+    assert "roster says raz; unverified email, Save to confirm" in body
+    assert 'data-selected="raz"' in body
+    dana = module.app.test_client()
+    with dana.session_transaction() as session:
+        session["subject"] = "email:dana@proton.me"
+    assert "No machine is assigned to you" in dana.get("/").get_data(as_text=True)

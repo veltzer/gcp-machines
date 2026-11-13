@@ -166,6 +166,21 @@ button.quiet:hover {
 	font-family: ui-monospace, Menlo, Consolas, monospace;
 }
 
+.machine-ssh {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	margin-top: 0.3rem;
+	font-size: 0.8rem;
+}
+
+.machine-ssh code {
+	padding: 0.15rem 0.45rem;
+	border-radius: 6px;
+	background: #f3f4f6;
+	overflow-wrap: anywhere;
+}
+
 .machine-actions {
 	display: flex;
 	gap: 0.5rem;
