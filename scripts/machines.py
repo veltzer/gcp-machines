@@ -83,6 +83,18 @@ MACHINE_VCPUS = 2
 # general CPUS quota and the per-series N2_CPUS quota. The tighter one wins.
 MACHINE_QUOTA_METRICS = ("CPUS", "N2_CPUS")
 
+# Every machine turns itself off this long after it starts. Compute Engine
+# enforces it (scheduling.maxRunDuration): the countdown starts whenever the
+# machine enters RUNNING (a start or a resume, from the web app or anywhere
+# else) and is cleared when it stops or suspends. When it runs out the
+# machine is stopped, not deleted: the boot disk is kept, memory is lost.
+# Set at create time; `set-limit` applies it to machines that predate it.
+MAX_RUN_SECONDS = 4 * 60 * 60
+RUN_LIMIT = {
+    "maxRunDuration": {"seconds": str(MAX_RUN_SECONDS)},
+    "instanceTerminationAction": "STOP",
+}
+
 def require_default_account(credentials):
     """
     Refuses to run unless we are authenticating as the default (personal)
@@ -306,6 +318,7 @@ def create_machine(project_id, compute, number, zone, owner, ssh_keys):
             },
         }],
         "labels": {"owner": owner},
+        "scheduling": dict(RUN_LIMIT),
         "advancedMachineFeatures": {"enableNestedVirtualization": True},
     }
     operation = compute.instances().insert(project=project_id, zone=zone, body=config).execute()
@@ -337,6 +350,52 @@ def stop_all_machines(project_id, compute, wait_mode):
 
     if wait_mode == WAIT_ALL:
         wait_for_operations(project_id, compute, operations, "stop")
+
+def has_run_limit(instance):
+    """ whether the instance already carries RUN_LIMIT """
+    scheduling = instance.get("scheduling", {})
+    return (
+        str(scheduling.get("maxRunDuration", {}).get("seconds")) == str(MAX_RUN_SECONDS)
+        and scheduling.get("instanceTerminationAction") == RUN_LIMIT["instanceTerminationAction"]
+    )
+
+def set_limit_all_machines(project_id, compute, wait_mode):
+    """
+    Applies RUN_LIMIT to every machine that does not carry it yet, for
+    machines created before it existed. Compute Engine only changes the
+    scheduling of a stopped machine, so running or suspended ones are
+    skipped and reported; stop them (the stop command) and run this again.
+    The rest of each machine's scheduling is kept as it is.
+    """
+    operations = []
+    skipped = []
+    for instance in get_all_instances(project_id, compute):
+        name = instance["name"]
+        zone_name = instance["zone"].split("/")[-1]
+        if has_run_limit(instance):
+            print(f"Skipping {name} in {zone_name} (already limited)")
+            continue
+        if instance["status"] != "TERMINATED":
+            print(f"Skipping {name} in {zone_name} (status: {instance['status']}, must be stopped)")
+            skipped.append(name)
+            continue
+        print(f"Limiting {name} in {zone_name} to {MAX_RUN_SECONDS // 3600}h of running...")
+        operation = compute.instances().setScheduling(
+            project=project_id, zone=zone_name, instance=name,
+            body={**instance.get("scheduling", {}), **RUN_LIMIT},
+        ).execute()
+        if wait_mode == WAIT_EACH:
+            wait_for_operation(project_id, compute, zone_name, operation["name"], "be limited")
+        else:
+            operations.append((zone_name, operation["name"]))
+
+    if wait_mode == WAIT_ALL:
+        wait_for_operations(project_id, compute, operations, "be limited")
+    if skipped:
+        sys.exit(
+            f"Not limited (not stopped): {', '.join(skipped)}.\n"
+            "Stop them (python scripts/machines.py stop) and run set-limit again."
+        )
 
 def continue_all_machines(project_id, compute, wait_mode):
     """
@@ -802,6 +861,14 @@ def main():
     continue_parser = subparsers.add_parser("continue", help="Continue (start) all stopped VM instances.")
     add_wait_flag(continue_parser)
     continue_parser.set_defaults(func=lambda args, proj, comp: continue_all_machines(proj, comp, args.wait_mode))
+
+    # Set-limit command
+    set_limit_parser = subparsers.add_parser(
+        "set-limit",
+        help=f"Make every stopped VM turn itself off {MAX_RUN_SECONDS // 3600}h after each start.",
+    )
+    add_wait_flag(set_limit_parser)
+    set_limit_parser.set_defaults(func=lambda args, proj, comp: set_limit_all_machines(proj, comp, args.wait_mode))
 
     # Delete-all command
     delete_parser = subparsers.add_parser("delete", help="Delete all VM instances.")

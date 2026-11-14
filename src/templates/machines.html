@@ -46,6 +46,9 @@
 					Start your machine, download its key once, then connect with the
 					ssh command shown on the card (on Linux and macOS first run
 					<code>chmod 600</code> on the key file). Suspend it when you are done.
+					A machine turns itself off 4 hours after it starts: your files are
+					kept, but running programs are not, so save your work and start it
+					again if you need more time.
 				</p>
 			{% endif %}
 			{% if machines|length == 0 and not unverified %}
@@ -63,6 +66,12 @@
 								owner {{machine.owner}} &middot; {{machine.zone}} &middot;
 								<span class="machine-ip">{{machine.ip}}</span>
 							</div>
+							{% if machine.turns_off_at %}
+								<div class="machine-meta">
+									turns itself off at
+									<time datetime="{{machine.turns_off_at}}">{{machine.turns_off_at[11:16]}} UTC</time>
+								</div>
+							{% endif %}
 							{% if machine.ip != "N/A" %}
 								<div class="machine-ssh">
 									<code>ssh -i {{machine.name}}.key ubuntu@{{machine.ip}}</code>

@@ -164,8 +164,20 @@ function fillAssignments() {
 	}
 }
 
+// A running machine's turn-off time arrives in UTC (the server cannot know
+// the viewer's time zone); show it in the browser's local time instead.
+function localizeTimes() {
+	for (const time of document.querySelectorAll("time[datetime]")) {
+		time.textContent = new Date(time.dateTime).toLocaleTimeString([], {
+			hour: "2-digit",
+			minute: "2-digit",
+		});
+	}
+}
+
 function machinesPage() {
 	fillAssignments();
+	localizeTimes();
 	for (const button of document.querySelectorAll("button[data-copy]")) {
 		button.onclick = async () => {
 			await navigator.clipboard.writeText(button.dataset.copy);

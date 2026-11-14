@@ -5,6 +5,7 @@ main application
 """
 
 import base64
+import datetime
 import os
 import re
 import secrets
@@ -234,8 +235,24 @@ def get_machines():
             "ip": access_configs[0].get("natIP", "N/A") if access_configs else "N/A",
             "zone": instance["zone"].split("/")[-1],
             "number": number,
+            "turns_off_at": turns_off_at(instance),
         })
     return data
+
+
+def turns_off_at(instance):
+    """
+    When a running machine will turn itself off (UTC, ISO 8601), or None.
+    Compute Engine stops a machine maxRunDuration after it last entered
+    RUNNING (scripts/machines.py sets 4 hours); a start and a resume both
+    move lastStartTimestamp, which is what the countdown starts from.
+    """
+    seconds = instance.get("scheduling", {}).get("maxRunDuration", {}).get("seconds")
+    started = instance.get("lastStartTimestamp")
+    if instance.get("status") != "RUNNING" or not seconds or not started:
+        return None
+    end = datetime.datetime.fromisoformat(started) + datetime.timedelta(seconds=int(seconds))
+    return end.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 @app.route("/", methods=["GET"])
@@ -354,6 +371,7 @@ def process():
         f"Requested {action} of machine {markupsafe.escape(name)}. "
         "Usually it takes 1-2 minutes to really happen."
         "<br/>If you started a machine go back and refresh until you get an IP to connect to. "
+        "It turns itself off 4 hours after it starts; your files are kept. "
         "Use the same key as before."
     )
 

@@ -32,6 +32,9 @@ AGGREGATED_RESPONSE = {
                     "networkInterfaces": [
                         {"accessConfigs": [{"natIP": "1.2.3.4"}]},
                     ],
+                    # started 13:07 Pacific, limited to 4 hours
+                    "lastStartTimestamp": "2026-11-14T13:07:15.199-08:00",
+                    "scheduling": {"maxRunDuration": {"seconds": "14400"}},
                 },
                 {
                     # no labels and no external access config:
@@ -225,6 +228,9 @@ def test_root_lists_machines_and_survives_missing_fields():
     assert "STOPPED" in body
     assert "TERMINATED" not in body
     assert "Signed in as admin@gmail.com" in body
+    # the running machine shows when it turns itself off, in UTC for the browser to localize
+    assert '<time datetime="2026-11-15T01:07:15Z">01:07 UTC</time>' in body
+    assert body.count("turns itself off at") == 1
 
 
 def test_process_rejects_get():

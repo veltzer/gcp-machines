@@ -1,1 +1,2 @@
 - get to running project.
+- machines turn themselves off 4 hours after they start (Compute Engine maxRunDuration).
