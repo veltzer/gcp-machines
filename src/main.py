@@ -145,6 +145,19 @@ def owner_of(user):
 METHODS = {"google": "Google", "github": "GitHub", "email": "Password", "dev": "Development"}
 
 
+# the icon the top bar shows for each sign-in method (static/<icon>.svg,
+# picked in machines.html); a development login is an email typed in, so it
+# gets the email icon
+METHOD_ICONS = {"google": "google", "github": "github", "email": "email", "dev": "email"}
+
+
+def sign_in_method(user):
+    """ how this account signed in, for the top bar: {"name", "icon"} """
+    key = user.key.name.split(":", 1)[0]
+    name = "email and password" if key == "email" else METHODS.get(key, key)
+    return {"name": name, "icon": METHOD_ICONS.get(key, "email")}
+
+
 def students_table(machines):
     """
     Every account and its machine, then the roster students who have not
@@ -302,6 +315,7 @@ def root():
         user=user,
         admin=admin,
         unverified=auth.needs_verification(user),
+        sign_in=sign_in_method(user),
         students=students,
         pending=pending,
         owners=owners,

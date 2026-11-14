@@ -763,3 +763,17 @@ def test_both_pages_carry_the_build_footer():
     signed_in = signed_in_client(module).get("/").get_data(as_text=True)
     for body in (signed_out, signed_in):
         assert '<p class="inscription" id="build"></p>' in body
+
+
+@pytest.mark.parametrize(("subject", "icon", "name"), [
+    ("google:1234", "google", "Google"),
+    ("github:5678", "github", "GitHub"),
+    ("email:keren@gmail.com", "email", "email and password"),
+])
+def test_top_bar_shows_how_the_user_signed_in(subject, icon, name):
+    module, _fake_compute = load_app(ADMIN)
+    client = signed_in_client(module, email="keren@gmail.com", subject=subject)
+    body = client.get("/").get_data(as_text=True)
+    assert f'title="Signed in with {name}"' in body
+    assert f'src="/static/{icon}.svg" alt="{name}"' in body
+    assert 'src="/static/signout.svg"' in body

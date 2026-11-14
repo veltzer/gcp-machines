@@ -15,12 +15,24 @@
 				Machines
 			</a>
 			<div class="whoami">
-				<span class="email">Signed in as {{user.email}}</span>
+				<span class="signed-in" title="Signed in with {{sign_in.name}}">
+					{% if sign_in.icon == "google" %}
+						<img class="method-icon" src="/static/google.svg" alt="{{sign_in.name}}">
+					{% elif sign_in.icon == "github" %}
+						<img class="method-icon" src="/static/github.svg" alt="{{sign_in.name}}">
+					{% else %}
+						<img class="method-icon" src="/static/email.svg" alt="{{sign_in.name}}">
+					{% endif %}
+					<span class="email">Signed in as {{user.email}}</span>
+				</span>
 				{% if admin %}
 					<span class="badge">admin</span>
 				{% endif %}
 				<form method="post" action="/auth/logout">
-					<button type="submit" class="quiet">Sign out</button>
+					<button type="submit" class="quiet with-icon">
+						<img class="method-icon" src="/static/signout.svg" alt="">
+						Sign out
+					</button>
 				</form>
 			</div>
 		</header>

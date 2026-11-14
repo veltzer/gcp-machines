@@ -78,6 +78,25 @@ button {
 	min-width: 0;
 }
 
+.whoami .signed-in {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	min-width: 0;
+}
+
+.method-icon {
+	width: 18px;
+	height: 18px;
+	flex: none;
+}
+
+button.with-icon {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+}
+
 .whoami .email {
 	overflow: hidden;
 	text-overflow: ellipsis;
