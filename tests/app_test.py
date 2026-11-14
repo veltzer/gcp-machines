@@ -231,6 +231,9 @@ def test_root_lists_machines_and_survives_missing_fields():
     # the running machine shows when it turns itself off, in UTC for the browser to localize
     assert '<time datetime="2026-11-15T01:07:15Z">01:07 UTC</time>' in body
     assert body.count("turns itself off at") == 1
+    # only the running machine has an IP to copy; the others' Copy IP is disabled
+    assert 'data-copy="1.2.3.4">Copy IP</button>' in body
+    assert body.count('disabled>Copy IP</button>') == 2
 
 
 def test_process_rejects_get():
@@ -739,3 +742,24 @@ def test_failed_verification_check_counts_as_not_yet():
     register(client)
     module.app.config["VERIFIER"].fail = True
     assert "verify your email" in client.get("/").get_data(as_text=True)
+
+
+def test_version_reports_deploy_stamp_and_revision():
+    module, _fake_compute = load_app()
+    module.app.config["BUILD_INFO"] = {"deploy_date": "2026-11-14T21:00:00Z", "git_describe": "dd8e1e0"}
+    with unittest.mock.patch.dict(os.environ, {"K_REVISION": "machines-00011-abc"}):
+        response = module.app.test_client().get("/app/version")
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "deploy_date": "2026-11-14T21:00:00Z",
+        "git_describe": "dd8e1e0",
+        "revision": "machines-00011-abc",
+    }
+
+
+def test_both_pages_carry_the_build_footer():
+    module, _fake_compute = load_app(ADMIN)
+    signed_out = module.app.test_client().get("/").get_data(as_text=True)
+    signed_in = signed_in_client(module).get("/").get_data(as_text=True)
+    for body in (signed_out, signed_in):
+        assert '<p class="inscription" id="build"></p>' in body

@@ -89,7 +89,16 @@
 							{% endif %}
 						</div>
 						<div class="machine-actions">
-							<button type="button" class="quiet" data-copy="{{machine.ip}}">Copy IP</button>
+							{# the hint sits on a wrapper: some browsers show no tooltip on a disabled button #}
+							{% if machine.ip != "N/A" %}
+								<span title="Copy the machine's IP address ({{machine.ip}}) to the clipboard">
+									<button type="button" class="quiet" data-copy="{{machine.ip}}">Copy IP</button>
+								</span>
+							{% else %}
+								<span title="The machine has no IP address while it is not running. Start it first.">
+									<button type="button" class="quiet" disabled>Copy IP</button>
+								</span>
+							{% endif %}
 							<form method="get" action="/key">
 								<input type="hidden" name="name" value="{{machine.name}}">
 								<input type="hidden" name="zone" value="{{machine.zone}}">
@@ -160,5 +169,10 @@
 				</div>
 			{% endif %}
 		</main>
+		<footer class="footer">
+			<p>&copy; <span class="copyright-year">2026</span> Mark Veltzer &middot; <a href="https://veltzer.org">veltzer.org</a></p>
+			<p class="inscription">Machines is a system written by Mark Veltzer &lt;<a href="mailto:mark.veltzer@gmail.com">mark.veltzer@gmail.com</a>&gt;</p>
+			<p class="inscription" id="build"></p>
+		</footer>
 	</body>
 </html>

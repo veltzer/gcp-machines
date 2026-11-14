@@ -6,6 +6,7 @@ main application
 
 import base64
 import datetime
+import json
 import os
 import re
 import secrets
@@ -23,6 +24,20 @@ from googleapiclient.errors import HttpError
 from src import auth, users, verification
 
 HTML_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "html")
+
+# The deploy stamp gcloud_run_deploy.sh (utils-bash) writes at the repo (and
+# image) root just before deploying: when, and from which commit. Absent in
+# development.
+BUILD_INFO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "build_info.json")
+
+
+def load_build_info():
+    """ the deploy stamp, or placeholders when there is none (development) """
+    try:
+        with open(BUILD_INFO, encoding="utf-8") as stream:
+            return json.load(stream)
+    except FileNotFoundError:
+        return {"deploy_date": "unknown", "git_describe": "dev"}
 
 
 def secret_key():
@@ -45,6 +60,7 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = "K_SERVICE" in os.environ
 # The hostname the service is meant to be reached on; empty in development.
 app.config["CANONICAL_HOST"] = os.environ.get("CANONICAL_HOST", "")
+app.config["BUILD_INFO"] = load_build_info()
 auth.configure(app)
 
 
@@ -193,6 +209,15 @@ def redirect_to_canonical_host():
 @app.route("/app/health", methods=["GET"])
 def health():
     return "ok"
+
+
+@app.route("/app/version", methods=["GET"])
+def version():
+    """ what is serving: the deploy stamp plus the Cloud Run revision """
+    info = dict(app.config["BUILD_INFO"])
+    # Cloud Run injects the serving revision name at runtime
+    info["revision"] = os.environ.get("K_REVISION", "local")
+    return flask.jsonify(info)
 
 
 @app.route("/api/config", methods=["GET"])

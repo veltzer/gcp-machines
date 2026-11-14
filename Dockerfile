@@ -14,6 +14,9 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
 COPY src ./src
+# The deploy stamp is written by gcloud_run_deploy.sh just before deploying;
+# building without it fails on purpose so an unstamped image never ships.
+COPY build_info.json ./
 
 ENV PATH="/app/.venv/bin:$PATH"
 

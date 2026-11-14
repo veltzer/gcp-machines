@@ -4,7 +4,7 @@ Findings from a code scan on 2026-10-04.
 
 ## Medium
 
-- `.gcloudignore:28` - the `!/build_info.json` exception says it "is what the app/version endpoint serves", but `src/main.py` has no version endpoint and nothing produces `build_info.json`. The ignore list also names paths that do not exist (`/Makefile`, `/package.json`, `/package-lock.json`, `/templates`, `/requirements.thawed.txt`, `/db`, `/misc`, `/gcloud`). Trim it to what the repo actually contains.
+- `.gcloudignore` names paths that do not exist (`/Makefile`, `/package.json`, `/package-lock.json`, `/templates`, `/requirements.thawed.txt`, `/db`, `/misc`, `/gcloud`). Trim it to what the repo actually contains.
 
 ## Low
 

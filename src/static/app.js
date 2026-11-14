@@ -28,6 +28,54 @@ function showError(message) {
 	box.hidden = !message;
 }
 
+// ─── footer (both pages) ────────────────────────────────────────────────────
+
+const REPO = "veltzer/gcp-machines";
+
+function link(href, ...children) {
+	const a = document.createElement("a");
+	a.href = href;
+	a.append(...children);
+	return a;
+}
+
+// The footer's provenance, as gcp-myworld's: the year and the commit come
+// from the deploy stamp, so the same deploy always says the same.
+async function showBuild() {
+	const build = $("build");
+	if (!build) {
+		return;
+	}
+	try {
+		const info = await api("/app/version");
+		const deployed = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(info.deploy_date || "") ? info.deploy_date : null;
+		for (const year of document.querySelectorAll(".copyright-year")) {
+			year.textContent = (deployed || new Date().toISOString()).slice(0, 4);
+		}
+		const commit = (info.git_describe || "").match(/(?:-g)?([0-9a-f]{7,40})(?:-dirty)?$/);
+		build.append("Built");
+		if (commit) {
+			const code = document.createElement("code");
+			code.textContent = commit[1];
+			build.append(
+				" from ",
+				link(`https://github.com/${REPO}`, REPO),
+				" commit ",
+				link(`https://github.com/${REPO}/commit/${commit[1]}`, code),
+			);
+		}
+		if (deployed) {
+			const time = document.createElement("time");
+			time.dateTime = deployed;
+			time.textContent = `${deployed.slice(0, 16).replace("T", " ")} UTC`;
+			build.append(" on ", time);
+		}
+		build.append(info.revision && info.revision !== "local" ? `, serving as ${info.revision}` : " (local)");
+	} catch {
+		// cosmetic only
+	}
+}
+
 // ─── sign-in page ───────────────────────────────────────────────────────────
 
 function loadGoogleSignIn(clientId) {
@@ -191,6 +239,7 @@ function machinesPage() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+	showBuild();
 	const page = document.body.dataset.page;
 	if (page === "index") {
 		indexPage().catch((e) => showError(e.message));
