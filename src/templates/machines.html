@@ -25,6 +25,9 @@
 				<div class="account">
 					<button id="account-button" class="account-button" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="account-menu" title="Signed in as {{user.email}}">
 						{{method_icon(sign_in.icon, sign_in.name)}}
+						{% if has_picture %}
+							<img class="avatar" src="/account/picture" alt="">
+						{% endif %}
 						<span class="email">{{account.name}}</span>
 						{% if admin %}
 							<span class="badge">admin</span>

@@ -292,17 +292,34 @@ def redirect_to_canonical_host():
 
 
 # What a page may load: only this origin (sign-in with Google and GitHub is
-# a plain redirect, nothing of theirs runs in our pages). frame-ancestors
+# a plain redirect, nothing of theirs runs in our pages), except the signed-in
+# person's photo, an image from Google's or GitHub's photo hosts (see
+# PICTURE_HOSTS). frame-ancestors
 # keeps other sites from framing the Start, Stop, Delete, Download key and
 # Assign buttons (clickjacking).
 CONTENT_SECURITY_POLICY = (
     "default-src 'self'; "
-    "img-src 'self' data:; "
+    "img-src 'self' data: https://*.googleusercontent.com https://avatars.githubusercontent.com; "
     "object-src 'none'; "
     "base-uri 'none'; "
     "form-action 'self'; "
     "frame-ancestors 'none'"
 )
+
+
+# where a provider's profile photo may come from: Google's (lh3. and its
+# siblings) and GitHub's photo hosts, the ones img-src above allows
+PICTURE_HOSTS = (".googleusercontent.com", "avatars.githubusercontent.com")
+
+
+def picture_url(account):
+    """ the account's profile photo URL when it is an https one on a photo host, else "" """
+    url = account.picture
+    parts = urllib.parse.urlsplit(url)
+    host = parts.hostname or ""
+    if parts.scheme != "https" or not any(host == h or (h.startswith(".") and host.endswith(h)) for h in PICTURE_HOSTS):
+        return ""
+    return url
 
 
 @app.after_request
@@ -423,6 +440,7 @@ def root():
         admin=admin,
         unverified=user.needs_verification,
         sign_in=sign_in_method(user),
+        has_picture=bool(picture_url(user)),
         account=account_details(user, admin),
         students=students,
         pending=pending,
@@ -473,6 +491,21 @@ def get_instance_for(user, name, zone):
         if owner is None or owner_of(user) != owner:
             flask.abort(403, "This machine is not yours.")
     return instance
+
+
+@app.route("/account/picture", methods=["GET"])
+@auth.login_required
+def account_picture():
+    """
+    The signed-in person's photo, as a redirect to it: the page's <img> has
+    a fixed address while the photo's own is the provider's.
+    """
+    url = picture_url(auth.current_user())
+    if not url:
+        flask.abort(404)
+    response = flask.redirect(url)
+    response.headers["Cache-Control"] = "private, max-age=3600"
+    return response
 
 
 @app.route("/key", methods=["GET"])

@@ -1418,3 +1418,30 @@ def test_the_settings_button_opens_a_dialog_to_set_the_name():
     assert 'id="settings-name" name="name" type="text" value="Keren"' in dialog
     # the name is set there only, not in the account panel
     assert body.count('action="/account/name"') == 1
+
+
+def test_the_top_bar_shows_the_providers_photo():
+    module, _fake_compute = load_app(ADMIN)
+    client = signed_in_client(module, "keren@gmail.com", subject="github:7")
+    photo = "https://avatars.githubusercontent.com/u/7?v=4"
+    module.datastore_client.entities[("login", "github:7")]["picture"] = photo
+    assert '<img class="avatar" src="/account/picture" alt="">' in client.get("/").get_data(as_text=True)
+    response = client.get("/account/picture")
+    assert response.status_code == 302
+    assert response.headers["Location"] == photo
+    assert "avatars.githubusercontent.com" in client.get("/").headers["Content-Security-Policy"]
+    # a Google photo works too
+    module.datastore_client.entities[("login", "github:7")]["picture"] = "https://lh3.googleusercontent.com/a/x=s96-c"
+    assert client.get("/account/picture").status_code == 302
+
+
+def test_no_photo_no_image():
+    module, _fake_compute = load_app(ADMIN)
+    client = signed_in_client(module, "keren@gmail.com", subject="email:keren@gmail.com")
+    assert 'class="avatar"' not in client.get("/").get_data(as_text=True)
+    assert client.get("/account/picture").status_code == 404
+    # nor a photo from anywhere but the providers' photo hosts
+    for url in ("http://avatars.githubusercontent.com/u/7", "https://evil.example/x.png", "https://googleusercontent.com.evil.example/x"):
+        module.datastore_client.entities[("login", "email:keren@gmail.com")]["picture"] = url
+        assert client.get("/account/picture").status_code == 404
+    assert module.app.test_client().get("/account/picture").status_code == 302  # signed out: to sign-in

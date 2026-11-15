@@ -102,6 +102,14 @@ class Account:
         return name or self.email.split("@")[0]
 
     @property
+    def picture(self):
+        """ the photo of the login signed in with, else the user's (from whichever login brought one), else "" """
+        for entity in (self.login, self.user):
+            if entity is not None and entity.get("picture"):
+                return entity["picture"]
+        return ""
+
+    @property
     def verified(self):
         """ whether the email is proven to be this person's: exactly when the login has a user """
         return self.user is not None

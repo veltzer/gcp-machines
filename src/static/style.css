@@ -222,6 +222,15 @@ button.with-icon {
 	gap: 0.35rem;
 }
 
+/* the signed-in person's Google or GitHub photo, beside the provider's icon */
+.avatar {
+	width: 24px;
+	height: 24px;
+	flex: none;
+	border-radius: 50%;
+	object-fit: cover;
+}
+
 .whoami .email {
 	overflow: hidden;
 	text-overflow: ellipsis;
