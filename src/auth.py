@@ -3,15 +3,15 @@ Sign-in: Google, GitHub, and email and password, the same three ways as
 gcp-myworld (whose src/myworld/auth.py this follows), with the accounts in
 Datastore (see users.py) instead of SQL.
 
-Google uses Google Identity Services in redirect mode: on success Google
-POSTs a signed ID token to /auth/login together with a CSRF token that is
-also set as a cookie. The server checks the two CSRF copies match and
-verifies the token's signature and audience with google-auth.
-
-GitHub goes through the plain OAuth 2.0 authorization code flow:
-/auth/oauth/github redirects to GitHub, the callback exchanges the code for
-an access token and asks GitHub who signed in. A provider is offered only
-when its client id and secret are set in the environment.
+Google and GitHub both go through the plain OAuth 2.0 authorization code
+flow, so each is one click on its icon: /auth/oauth/<provider> redirects to
+the provider with a random state kept in the session, and the callback
+checks the state and exchanges the code. From Google that yields a signed
+ID token, whose signature and audience google-auth verifies; Google's
+callback is /auth/login, the redirect URI registered with the OAuth client.
+From GitHub it yields an access token, with which the server asks GitHub
+who signed in. A provider is offered only when its client id and secret are
+set in the environment.
 
 Email accounts live entirely in Datastore, with werkzeug password hashes.
 Their address counts as verified once the student follows the link that
@@ -66,13 +66,12 @@ def configure(app):
     """
     Read the sign-in settings from the environment, once, into the app config:
 
-    GOOGLE_CLIENT_ID                         offers Sign in with Google
-    GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET   offers Continue with GitHub
+    GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   offers Google
+    GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET   offers GitHub
     MACHINES_DEV_LOGIN=1                     the local development login,
                                              never on Cloud Run (K_SERVICE)
     """
     app.config["ON_CLOUD_RUN"] = "K_SERVICE" in os.environ
-    app.config["GOOGLE_CLIENT_ID"] = os.environ.get("GOOGLE_CLIENT_ID", "")
     app.config["DEV_LOGIN"] = os.environ.get("MACHINES_DEV_LOGIN") == "1" and not app.config["ON_CLOUD_RUN"]
     for key in OAUTH_PROVIDERS:
         for part in ("CLIENT_ID", "CLIENT_SECRET"):
@@ -84,10 +83,6 @@ def configure(app):
 def verifier():
     """ what sends and checks verification mails (verification.IdentityPlatform) """
     return flask.current_app.config["VERIFIER"]
-
-
-def google_client_id():
-    return flask.current_app.config["GOOGLE_CLIENT_ID"]
 
 
 def dev_login_enabled():
@@ -145,32 +140,16 @@ def handle_http_error(error):
 
 def verify_google_token(token):
     """ the verified claims of a Google ID token, raising ValueError otherwise """
-    audience = google_client_id()
+    audience = OAUTH_PROVIDERS["google"].client_id
     if not audience:
         raise ValueError("GOOGLE_CLIENT_ID is not configured")
     return id_token.verify_oauth2_token(token, google_requests.Request(), audience)
 
 
-@bp.route("/login", methods=["POST"])
-def google_login():
-    csrf_cookie = flask.request.cookies.get("g_csrf_token", "")
-    csrf_body = flask.request.form.get("g_csrf_token", "")
-    if not csrf_cookie or not hmac.compare_digest(csrf_cookie, csrf_body):
-        flask.abort(400, "CSRF token mismatch")
-    try:
-        claims = verify_google_token(flask.request.form.get("credential", ""))
-    except ValueError:
-        flask.abort(401, "Invalid Google sign-in token")
-    account = users.upsert_from_provider(
-        datastore_client(),
-        f"google:{claims['sub']}",
-        claims.get("email", ""),
-        claims.get("name", ""),
-        claims.get("picture", ""),
-        verified=bool(claims.get("email_verified")),
-    )
-    start_session(account)
-    return flask.redirect(flask.url_for("root"))
+@bp.route("/login", methods=["GET"])
+def google_callback():
+    """ where Google returns: the redirect URI registered with the OAuth client """
+    return finish_oauth(_provider("google"))
 
 
 # ─── email and password ──────────────────────────────────────────────────────
@@ -305,6 +284,8 @@ class OAuthProvider:
     token_url: str
     userinfo_url: str
     scope: str
+    # the endpoint the provider returns to, when not the generic oauth_callback
+    callback: str = "auth.oauth_callback"
 
     @property
     def client_id(self):
@@ -320,6 +301,15 @@ class OAuthProvider:
 
 
 OAUTH_PROVIDERS = {
+    "google": OAuthProvider(
+        key="google",
+        name="Google",
+        authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+        token_url="https://oauth2.googleapis.com/token",
+        userinfo_url="",
+        scope="openid email profile",
+        callback="auth.google_callback",
+    ),
     "github": OAuthProvider(
         key="github",
         name="GitHub",
@@ -343,11 +333,13 @@ def _provider(key):
 
 
 def _callback_url(provider):
-    return _external_url("auth.oauth_callback", provider=provider.key)
+    if provider.callback == "auth.oauth_callback":
+        return _external_url(provider.callback, provider=provider.key)
+    return _external_url(provider.callback)
 
 
 def exchange_code(provider, code, redirect_uri):
-    """ trade the authorization code for an access token """
+    """ trade the authorization code for the provider's token response (a dict) """
     response = requests.post(
         provider.token_url,
         data={
@@ -360,14 +352,26 @@ def exchange_code(provider, code, redirect_uri):
         headers={"Accept": "application/json"},
         timeout=HTTP_TIMEOUT,
     )
-    token = response.json().get("access_token") if response.ok else None
+    tokens = response.json() if response.ok else None
+    if not isinstance(tokens, dict):
+        raise OAuthError(f"{provider.name} did not issue a token")
+    return tokens
+
+
+def fetch_identity(provider, tokens):
+    """ who the tokens belong to: (subject, email, name, picture, email verified) """
+    if provider.key == "google":
+        claims = verify_google_token(tokens.get("id_token") or "")
+        return (
+            f"google:{claims['sub']}",
+            claims.get("email", ""),
+            claims.get("name", ""),
+            claims.get("picture", ""),
+            bool(claims.get("email_verified")),
+        )
+    token = tokens.get("access_token")
     if not isinstance(token, str) or not token:
         raise OAuthError(f"{provider.name} did not issue an access token")
-    return token
-
-
-def fetch_identity(provider, token):
-    """ ask the provider who the token belongs to: (subject, email, name, picture) """
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     response = requests.get(provider.userinfo_url, headers=headers, timeout=HTTP_TIMEOUT)
     if not response.ok:
@@ -384,6 +388,7 @@ def fetch_identity(provider, token):
         email,
         info.get("name") or info.get("login") or "",
         info.get("avatar_url") or "",
+        bool(email),
     )
 
 
@@ -399,6 +404,9 @@ def oauth_start(provider):
         "scope": oauth.scope,
         "state": state,
     }
+    if oauth.key == "google":
+        # let someone signed in to several Google accounts pick one
+        params["prompt"] = "select_account"
     return flask.redirect(f"{oauth.authorize_url}?{urllib.parse.urlencode(params)}")
 
 
@@ -409,6 +417,13 @@ def _back_with_error(message):
 @bp.route("/oauth/<provider>/callback", methods=["GET"])
 def oauth_callback(provider):
     oauth = _provider(provider)
+    if oauth.callback != "auth.oauth_callback":
+        flask.abort(404)
+    return finish_oauth(oauth)
+
+
+def finish_oauth(oauth):
+    """ the provider sent the browser back: check the state, learn who it is, sign them in """
     expected = flask.session.pop("oauth_state", "")
     given = flask.request.args.get("state", "")
     if not expected or not hmac.compare_digest(expected, given):
@@ -418,11 +433,11 @@ def oauth_callback(provider):
         # the user said no on the provider's consent screen
         return _back_with_error(f"{oauth.name} sign-in was cancelled")
     try:
-        token = exchange_code(oauth, code, _callback_url(oauth))
-        subject, email, name, picture = fetch_identity(oauth, token)
+        tokens = exchange_code(oauth, code, _callback_url(oauth))
+        subject, email, name, picture, verified = fetch_identity(oauth, tokens)
     except (OAuthError, requests.RequestException, ValueError, KeyError):
         return _back_with_error(f"{oauth.name} sign-in failed, try again")
-    account = users.upsert_from_provider(datastore_client(), subject, email, name, picture, verified=bool(email))
+    account = users.upsert_from_provider(datastore_client(), subject, email, name, picture, verified=verified)
     start_session(account)
     return flask.redirect(flask.url_for("root"))
 

@@ -35,18 +35,25 @@ file says.
 
 Anyone can create an account. The sign-in page (`src/html/index.html`,
 `src/static/app.js`, the scene in `src/static/scene.svg`) follows
-gcp-myworld's and offers three ways in; `src/auth.py` does the work and
-users and their logins live in Datastore (see `src/users.py`):
+gcp-myworld's and offers three ways in, one icon each; `src/auth.py` does
+the work and users and their logins live in Datastore (see
+`src/users.py`):
 
-- Google: the Google Identity Services button in redirect mode. Google
-  POSTs a signed ID token to `/auth/login`; the server checks the CSRF
-  cookie and verifies the token against `GOOGLE_CLIENT_ID`.
-- GitHub: the OAuth 2.0 authorization code flow through
-  `/auth/oauth/github` and its `/callback`. Offered only when
-  `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are set.
-- Email and password: `POST /auth/email/register` and
-  `POST /auth/email/login` (JSON). Always available. Registering mails a
-  verification link to the address (next section).
+- Google: the OAuth 2.0 authorization code flow through
+  `/auth/oauth/google`, coming back to `/auth/login` (the redirect URI
+  registered with the client). The server trades the code for Google's
+  signed ID token and verifies it against `GOOGLE_CLIENT_ID`. Offered
+  only when `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set.
+- GitHub: the same flow through `/auth/oauth/github` and its
+  `/callback`. Offered only when `GITHUB_CLIENT_ID` and
+  `GITHUB_CLIENT_SECRET` are set.
+- Email and password: the Email icon opens the form, which talks to
+  `POST /auth/email/register` and `POST /auth/email/login` (JSON).
+  Always available. Registering mails a verification link to the address
+  (next section).
+
+Both providers are plain redirects, so nothing of theirs runs in our
+pages and the Content-Security-Policy allows only this origin.
 
 Each way of signing in is a login (kind `login`, keyed `google:<sub>`,
 `github:<id>`, `email:<address>`), and each person is a user (kind
@@ -116,8 +123,12 @@ organization:
    `http://localhost:8080`. Authorized redirect URIs:
    `https://machines.veltzer.org/auth/login` and
    `http://localhost:8080/auth/login`. Paste the client ID into
-   `gcp_oauth_client_id`. The consent screen is the External one already
-   configured for IAP.
+   `gcp_oauth_client_id`, store the client secret with `pass insert
+   keys/google.com.machines-oauth` (first line; notes may follow), and run
+   `gcloud_project_setup.sh`, which copies it to the Secret Manager secret
+   `machines-google-client-secret`. The consent screen is the External one
+   already configured for IAP. (The JavaScript origins date from Google's
+   sign-in button, which the app no longer uses.)
 1. GitHub: `Settings -> Developer settings -> OAuth Apps -> New OAuth
    App`, homepage `https://machines.veltzer.org`, callback
    `https://machines.veltzer.org/auth/oauth/github/callback`. Paste the

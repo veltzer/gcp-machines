@@ -13,6 +13,7 @@ import os
 import sys
 import threading
 import unittest.mock
+import urllib.parse
 
 import pytest
 from google.cloud import datastore
@@ -471,19 +472,50 @@ def test_password_login_failures_look_the_same():
     assert wrong_password.get_json() == no_account.get_json()
 
 
-def test_google_login_checks_csrf_and_creates_verified_account():
-    module, _fake_compute = load_app({**ADMIN, "GOOGLE_CLIENT_ID": "client-id"})
+GOOGLE = {"GOOGLE_CLIENT_ID": "client-id", "GOOGLE_CLIENT_SECRET": "client-secret"}
+
+
+def test_google_sign_in_is_one_redirect_and_checks_the_state():
+    module, _fake_compute = load_app({**ADMIN, **GOOGLE})
     client = module.app.test_client()
-    assert client.post("/auth/login", data={"credential": "x", "g_csrf_token": "a"}).status_code == 400
-    claims = {"sub": "123", "email": "Admin@gmail.com", "email_verified": True, "name": "Admin", "picture": ""}
-    with unittest.mock.patch("src.auth.verify_google_token", return_value=claims):
-        client.set_cookie("g_csrf_token", "tok")
-        response = client.post("/auth/login", data={"credential": "x", "g_csrf_token": "tok"})
+    response = client.get("/auth/oauth/google")
     assert response.status_code == 302
+    location = urllib.parse.urlsplit(response.headers["Location"])
+    params = urllib.parse.parse_qs(location.query)
+    assert location.netloc == "accounts.google.com"
+    # back to /auth/login, the redirect URI registered with the OAuth client
+    assert params["redirect_uri"] == ["http://localhost/auth/login"]
+    assert params["scope"] == ["openid email profile"]
+    assert params["prompt"] == ["select_account"]
+    assert client.get("/auth/login?state=wrong&code=c").status_code == 400
+    # Google comes back to /auth/login, never to the generic callback
+    assert client.get("/auth/oauth/google/callback?state=x&code=c").status_code == 404
+
+
+def test_google_sign_in_creates_a_verified_account():
+    module, _fake_compute = load_app({**ADMIN, **GOOGLE})
+    client = module.app.test_client()
+    google_sign_in(module, client, "123", "Admin@gmail.com")
     stored = module.datastore_client.entities[("login", "google:123")]
     assert stored["verified"] is True
     assert stored["email"] == "admin@gmail.com"
     assert "badge" in client.get("/").get_data(as_text=True)
+
+
+def test_google_email_google_did_not_verify_has_no_user():
+    module, _fake_compute = load_app({**ADMIN, **GOOGLE})
+    google_sign_in(module, module.app.test_client(), "9", "keren@gmail.com", verified=False)
+    assert "user" not in module.datastore_client.entities[("login", "google:9")]
+
+
+def test_sign_in_page_offers_three_icons():
+    module, _fake_compute = load_app()
+    body = module.app.test_client().get("/").get_data(as_text=True)
+    assert 'href="/auth/oauth/google"' in body
+    assert 'href="/auth/oauth/github"' in body
+    assert 'id="method-email"' in body
+    # the email form waits behind its icon
+    assert '<form id="email-form" class="email-form" novalidate hidden>' in body
 
 
 # ─── one user, several logins ────────────────────────────────────────────────
@@ -491,12 +523,16 @@ def test_google_login_checks_csrf_and_creates_verified_account():
 GITHUB = {"GITHUB_CLIENT_ID": "gh-id", "GITHUB_CLIENT_SECRET": "gh-secret"}
 
 
-def google_sign_in(module, client, sub, email, verified=True):
-    """Signs the client in with Google as the given identity."""
+def google_sign_in(_module, client, sub, email, verified=True):
+    """Signs the client in with Google as the given identity, through the code flow."""
+    client.get("/auth/oauth/google")
+    with client.session_transaction() as session:
+        state = session["oauth_state"]
     claims = {"sub": sub, "email": email, "email_verified": verified, "name": email.split("@")[0], "picture": ""}
-    with unittest.mock.patch("src.auth.verify_google_token", return_value=claims):
-        client.set_cookie("g_csrf_token", "tok")
-        assert client.post("/auth/login", data={"credential": "x", "g_csrf_token": "tok"}).status_code == 302
+    with unittest.mock.patch("src.auth.exchange_code", return_value={"id_token": "signed"}), \
+            unittest.mock.patch("src.auth.verify_google_token", return_value=claims) as verify:
+        assert client.get(f"/auth/login?state={state}&code=c").status_code == 302
+    verify.assert_called_once_with("signed")
 
 
 def github_sign_in(client, github_id, email):
@@ -504,14 +540,14 @@ def github_sign_in(client, github_id, email):
     client.get("/auth/oauth/github")
     with client.session_transaction() as session:
         state = session["oauth_state"]
-    identity = (f"github:{github_id}", email, "Name", "")
-    with unittest.mock.patch("src.auth.exchange_code", return_value="token"), \
+    identity = (f"github:{github_id}", email, "Name", "", bool(email))
+    with unittest.mock.patch("src.auth.exchange_code", return_value={"access_token": "token"}), \
             unittest.mock.patch("src.auth.fetch_identity", return_value=identity):
         assert client.get(f"/auth/oauth/github/callback?state={state}&code=c").status_code == 302
 
 
 def test_google_and_github_with_the_same_email_are_one_user():
-    module, _fake_compute = load_app({**ADMIN, **GITHUB, "GOOGLE_CLIENT_ID": "client-id"})
+    module, _fake_compute = load_app({**ADMIN, **GITHUB, **GOOGLE})
     google_sign_in(module, module.app.test_client(), "g1", "Keren@gmail.com")
     github_sign_in(module.app.test_client(), 77, "keren@gmail.com")
     entities = module.datastore_client.entities
@@ -524,7 +560,7 @@ def test_google_and_github_with_the_same_email_are_one_user():
 
 
 def test_an_assignment_holds_for_every_way_the_user_signs_in():
-    module, _fake_compute = load_app({**ADMIN, **GITHUB, "GOOGLE_CLIENT_ID": "client-id"})
+    module, _fake_compute = load_app({**ADMIN, **GITHUB, **GOOGLE})
     google = module.app.test_client()
     google_sign_in(module, google, "g1", "keren@gmail.com")
     admin = signed_in_client(module)
@@ -640,7 +676,7 @@ def test_dev_login_only_when_enabled_and_never_on_cloud_run():
 
 def test_github_hidden_until_configured():
     module, _fake_compute = load_app()
-    assert module.app.test_client().get("/api/config").get_json()["providers"] == {"github": False}
+    assert module.app.test_client().get("/api/config").get_json()["providers"] == {"google": False, "github": False}
     assert module.app.test_client().get("/auth/oauth/github").status_code == 404
     module, _fake_compute = load_app({"GITHUB_CLIENT_ID": "id", "GITHUB_CLIENT_SECRET": "secret"})
     response = module.app.test_client().get("/auth/oauth/github")
@@ -1300,7 +1336,9 @@ def test_pages_cannot_be_framed():
     for response in (module.app.test_client().get("/"), signed_in_client(module).get("/")):
         csp = response.headers["Content-Security-Policy"]
         assert "frame-ancestors 'none'" in csp
-        assert "script-src 'self' https://accounts.google.com/gsi/client" in csp
+        # sign-in is a plain redirect: nothing from another origin runs in our pages
+        assert csp.startswith("default-src 'self'; ")
+        assert "accounts.google.com" not in csp
         assert response.headers["X-Frame-Options"] == "DENY"
         assert response.headers["X-Content-Type-Options"] == "nosniff"
         assert "Strict-Transport-Security" not in response.headers

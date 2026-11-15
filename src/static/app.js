@@ -1,5 +1,4 @@
 /* jshint esversion: 11, browser: true */
-/* globals google */
 
 "use strict";
 
@@ -78,36 +77,8 @@ async function showBuild() {
 
 // ─── sign-in page ───────────────────────────────────────────────────────────
 
-function loadGoogleSignIn(clientId) {
-	const script = document.createElement("script");
-	script.src = "https://accounts.google.com/gsi/client";
-	script.async = true;
-	script.onload = () => {
-		google.accounts.id.initialize({
-			client_id: clientId,
-			ux_mode: "redirect",
-			login_uri: `${window.location.origin}/auth/login`,
-		});
-		google.accounts.id.renderButton($("signin"), {
-			type: "standard",
-			size: "large",
-			theme: "outline",
-			text: "continue_with",
-			shape: "pill",
-			logo_alignment: "left",
-			width: Math.min(360, $("signin").clientWidth || 360),
-		});
-		$("signin-loading").hidden = true;
-	};
-	script.onerror = () => {
-		$("signin-loading").hidden = true;
-		showError("Could not load Google sign-in. Check your connection and reload.");
-	};
-	document.head.appendChild(script);
-}
-
 function setupProviders(configured) {
-	for (const link of document.querySelectorAll(".provider[data-provider]")) {
+	for (const link of document.querySelectorAll(".method[data-provider]")) {
 		if (configured[link.dataset.provider]) {
 			continue;
 		}
@@ -168,6 +139,20 @@ function setupEmailForm(minLength) {
 	applyMode();
 }
 
+// The Email tile opens (and closes) the email and password form under the tiles.
+function setupEmailChoice() {
+	const tile = $("method-email");
+	const form = $("email-form");
+	tile.onclick = () => {
+		const open = form.hidden;
+		form.hidden = !open;
+		tile.setAttribute("aria-expanded", String(open));
+		if (open) {
+			form.elements.email.focus();
+		}
+	};
+}
+
 async function indexPage() {
 	const config = await api("/api/config");
 	if (config.signed_in) {
@@ -179,13 +164,8 @@ async function indexPage() {
 		showError(error);
 		window.history.replaceState(null, "", "/");
 	}
-	if (config.google_client_id) {
-		loadGoogleSignIn(config.google_client_id);
-	} else {
-		$("signin-loading").hidden = true;
-		$("signin-missing").hidden = false;
-	}
 	setupProviders(config.providers);
+	setupEmailChoice();
 	setupEmailForm(config.password_min_length);
 	$("dev-login").hidden = !config.dev_login;
 }

@@ -528,34 +528,6 @@ button:disabled:hover {
 	color: var(--muted);
 }
 
-.google {
-	position: relative;
-	min-height: 44px;
-}
-
-.gsi-slot {
-	display: flex;
-	justify-content: center;
-}
-
-.gsi-placeholder {
-	position: absolute;
-	inset: 0;
-	margin: 0 auto;
-	max-width: 360px;
-	border-radius: 6px;
-	background: linear-gradient(90deg, #eef0f4 25%, #f8f9fb 50%, #eef0f4 75%);
-	background-size: 200% 100%;
-	animation: shimmer 1.4s linear infinite;
-	pointer-events: none;
-}
-
-@keyframes shimmer {
-	to {
-		background-position: -200% 0;
-	}
-}
-
 .hint {
 	margin: 0.5rem 0 0;
 	font-size: 0.85rem;
@@ -563,29 +535,68 @@ button:disabled:hover {
 	text-align: center;
 }
 
-.divider {
-	display: flex;
-	align-items: center;
+/* the three ways in, one tile each: Google, GitHub, Email */
+.methods {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
 	gap: 0.75rem;
-	margin: 1.25rem 0;
-	font-size: 0.8rem;
-	color: var(--muted);
-	text-transform: uppercase;
-	letter-spacing: 0.08em;
+	margin: 0 0 1rem;
 }
 
-.divider::before,
-.divider::after {
-	content: "";
-	flex: 1;
-	height: 1px;
-	background: var(--line);
+.method {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	align-items: center;
+	justify-content: center;
+	padding: 1rem 0.5rem;
+	color: var(--ink);
+	font: inherit;
+	font-weight: 600;
+	text-decoration: none;
+	background: #fff;
+	border: 1px solid var(--line);
+	border-radius: 14px;
+	transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+}
+
+.method img {
+	width: 32px;
+	height: 32px;
+}
+
+.method:hover,
+.method[aria-expanded="true"] {
+	border-color: var(--accent);
+	box-shadow: 0 6px 16px rgb(37 99 235 / 14%);
+}
+
+.method:active {
+	transform: translateY(1px);
+}
+
+.method:focus-visible {
+	outline: 3px solid rgb(37 99 235 / 35%);
+	outline-offset: 2px;
+}
+
+.method.off {
+	opacity: 0.45;
+	cursor: not-allowed;
+	box-shadow: none;
+	transform: none;
+	border-color: var(--line);
 }
 
 .email-form {
 	display: flex;
 	flex-direction: column;
 	gap: 0.75rem;
+	margin-bottom: 1rem;
+}
+
+.email-form[hidden] {
+	display: none;
 }
 
 .field {
@@ -671,53 +682,6 @@ button:disabled {
 	color: var(--muted);
 }
 
-.providers {
-	display: flex;
-	flex-direction: column;
-	gap: 0.6rem;
-}
-
-.provider {
-	display: flex;
-	align-items: center;
-	gap: 0.75rem;
-	padding: 0.6rem 0.9rem;
-	border: 1px solid var(--line);
-	border-radius: 10px;
-	background: #fff;
-	color: var(--ink);
-	font-weight: 500;
-	text-decoration: none;
-	transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
-}
-
-.provider img {
-	width: 20px;
-	height: 20px;
-}
-
-.provider span {
-	flex: 1;
-	text-align: center;
-	margin-right: 20px;
-}
-
-.provider:hover {
-	border-color: #9ca3af;
-	box-shadow: 0 4px 12px rgb(30 41 59 / 8%);
-}
-
-.provider:active {
-	transform: translateY(1px);
-}
-
-.provider.off {
-	opacity: 0.5;
-	cursor: not-allowed;
-	box-shadow: none;
-	transform: none;
-}
-
 .dev-login {
 	margin-top: 1.5rem;
 	padding: 0.75rem 1rem;
@@ -781,12 +745,6 @@ button:disabled {
 
 	.card {
 		padding: 1.5rem 1.25rem;
-	}
-}
-
-@media (prefers-reduced-motion: reduce) {
-	.gsi-placeholder {
-		animation: none;
 	}
 }
 

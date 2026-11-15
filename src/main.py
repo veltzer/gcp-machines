@@ -289,16 +289,12 @@ def redirect_to_canonical_host():
     return flask.redirect(url, code=308)
 
 
-# What a page may load: only this origin, plus the Google Identity Services
-# script, button frame and stylesheet the sign-in page uses (the sources
-# Google documents for GIS). frame-ancestors keeps other sites from framing
-# the Start/Suspend, Download key and Assign buttons (clickjacking).
+# What a page may load: only this origin (sign-in with Google and GitHub is
+# a plain redirect, nothing of theirs runs in our pages). frame-ancestors
+# keeps other sites from framing the Start, Stop, Delete, Download key and
+# Assign buttons (clickjacking).
 CONTENT_SECURITY_POLICY = (
     "default-src 'self'; "
-    "script-src 'self' https://accounts.google.com/gsi/client; "
-    "style-src 'self' https://accounts.google.com/gsi/style; "
-    "frame-src https://accounts.google.com/gsi/; "
-    "connect-src 'self' https://accounts.google.com/gsi/; "
     "img-src 'self' data:; "
     "object-src 'none'; "
     "base-uri 'none'; "
@@ -344,7 +340,6 @@ def api_config():
     """ what the sign-in page needs: which ways in this server offers """
     return flask.jsonify({
         "signed_in": auth.current_user() is not None,
-        "google_client_id": auth.google_client_id(),
         "dev_login": auth.dev_login_enabled(),
         "password_min_length": auth.PASSWORD_MIN_LENGTH,
         # every provider the page knows about, so it can grey out the ones this server cannot offer
