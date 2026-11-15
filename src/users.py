@@ -95,6 +95,13 @@ class Account:
         return self.login.get("email", "") if self.login is not None else ""
 
     @property
+    def name(self):
+        """ what to call this person: the name they set or a provider gave, else their email's local part """
+        entity = self.user if self.user is not None else self.login
+        name = entity.get("name") if entity is not None else ""
+        return name or self.email.split("@")[0]
+
+    @property
     def verified(self):
         """ whether the email is proven to be this person's: exactly when the login has a user """
         return self.user is not None
@@ -283,3 +290,14 @@ def assign(client, target, owner, machine_limit=None):
                 entity["machine_limit"] = machine_limit
         client.put(entity)
     return True
+
+
+# the longest name a user may set (also the name field's maxlength in machines.html)
+NAME_MAX_LENGTH = 60
+
+
+def set_name(client, account, name):
+    """ the name a person chose, kept on their user (or on their login while it has none) """
+    entity = account.user if account.user is not None else account.login
+    entity["name"] = name
+    client.put(entity)

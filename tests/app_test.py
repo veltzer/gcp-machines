@@ -555,7 +555,7 @@ def test_google_and_github_with_the_same_email_are_one_user():
     assert entities[("login", "github:77")]["user"] == "keren@gmail.com"
     assert [name for kind, name in entities if kind == "user"] == ["keren@gmail.com"]
     body = signed_in_client(module).get("/").get_data(as_text=True)
-    assert body.count("keren@gmail.com\n") == 1  # one row on the Students table
+    assert body.count('<br><span class="source">keren@gmail.com</span>') == 1  # one row on the Students table
     assert "GitHub, Google" in body
 
 
@@ -661,6 +661,59 @@ def test_account_panel_of_an_unverified_password_login():
     assert "Your way to sign in" in body
     assert "email not verified yet" in body
     assert "<dd>none</dd>" in body
+
+
+def test_the_top_bar_shows_the_users_name():
+    module, _fake_compute = load_app({**ADMIN, **GOOGLE})
+    client = module.app.test_client()
+    google_sign_in(module, client, "g1", "keren@gmail.com")
+    module.datastore_client.entities[("user", "keren@gmail.com")]["name"] = "Keren Cohen"
+    body = client.get("/").get_data(as_text=True)
+    assert '<span class="email">Keren Cohen</span>' in body
+    assert 'title="Signed in as keren@gmail.com"' in body
+
+
+def test_a_user_without_a_name_is_called_by_their_email():
+    module, _fake_compute = load_app(ADMIN)
+    add_user(module, "github:7", "dana@proton.me")
+    module.datastore_client.entities[("user", "dana@proton.me")]["name"] = ""
+    body = signed_in_client(module, "dana@proton.me", subject="github:7").get("/").get_data(as_text=True)
+    assert '<span class="email">dana</span>' in body
+
+
+def test_a_user_renames_themself_for_every_way_they_sign_in():
+    module, _fake_compute = load_app(ADMIN)
+    add_user(module, "github:7", "keren@gmail.com")
+    client = signed_in_client(module, "keren@gmail.com")
+    response = client.post("/account/name", data={"name": "  Keren   Cohen "}, follow_redirects=True)
+    assert "You are now called Keren Cohen." in response.get_data(as_text=True)
+    assert module.datastore_client.entities[("user", "keren@gmail.com")]["name"] == "Keren Cohen"
+    github = module.app.test_client()
+    with github.session_transaction() as session:
+        session["subject"] = "github:7"
+    assert '<span class="email">Keren Cohen</span>' in github.get("/").get_data(as_text=True)
+    # and the admin sees it on the Students table
+    assert '<span class="student-name">Keren Cohen</span>' in signed_in_client(module).get("/").get_data(as_text=True)
+
+
+def test_a_name_must_be_sensible():
+    module, _fake_compute = load_app(ADMIN)
+    client = signed_in_client(module, "keren@gmail.com")
+    before = module.datastore_client.entities[("user", "keren@gmail.com")]["name"]
+    for bad in ("", "   ", "x" * 61, "bad\u0000name"):
+        response = client.post("/account/name", data={"name": bad}, follow_redirects=True)
+        assert "A name is 1 to 60 printable characters." in response.get_data(as_text=True)
+    assert module.datastore_client.entities[("user", "keren@gmail.com")]["name"] == before
+    assert module.app.test_client().post("/account/name", data={"name": "x"}).status_code == 302
+    # the form's own limit is the server's
+    assert f'maxlength="{module.users.NAME_MAX_LENGTH}"' in client.get("/").get_data(as_text=True)
+
+
+def test_an_unverified_login_keeps_its_name_on_itself():
+    module, _fake_compute = load_app(ADMIN)
+    client = signed_in_client(module, "dana@proton.me", subject="email:dana@proton.me", verified=False)
+    client.post("/account/name", data={"name": "Dana"})
+    assert module.datastore_client.entities[("login", "email:dana@proton.me")]["name"] == "Dana"
 
 
 def test_dev_login_only_when_enabled_and_never_on_cloud_run():

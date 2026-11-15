@@ -211,6 +211,7 @@ def account_details(user, admin):
     owner, source = assignment(user)
     created = (user.user or user.login).get("created")
     return {
+        "name": user.name,
         "email": user.email,
         "role": "Admin" if admin else "Student",
         "machine": f"{owner} ({'assigned by an admin' if source == 'assigned' else 'from the roster'})" if owner else "none",
@@ -250,6 +251,7 @@ def students_table(machines):
             suggested = "" if owner else email_to_owner().get(account.email.lower(), "")
         rows.append({
             "target": account.target,
+            "name": account.name,
             "email": account.email,
             "method": method,
             "admin": is_admin(account),
@@ -516,6 +518,17 @@ def assign():
     if not users.assign(datastore_client, target, owner, limit):
         flask.abort(404, "There is no such account.")
     return flask.redirect(flask.url_for("root", _anchor="students"))
+
+
+@app.route("/account/name", methods=["POST"])
+@auth.login_required
+def set_name():
+    """ the signed-in person chooses what they are called """
+    name = " ".join(flask.request.form.get("name", "").split())
+    if not name or len(name) > users.NAME_MAX_LENGTH or not name.isprintable():
+        return done(f"A name is 1 to {users.NAME_MAX_LENGTH} printable characters.")
+    users.set_name(datastore_client, auth.current_user(), name)
+    return done(f"You are now called {name}.")
 
 
 def done(message):

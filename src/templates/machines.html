@@ -23,14 +23,19 @@
 			<div class="whoami">
 				{# the account panel: who is signed in, and every way they sign in #}
 				<div class="account">
-					<button id="account-button" class="account-button" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="account-menu" title="Your account">
+					<button id="account-button" class="account-button" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="account-menu" title="Signed in as {{user.email}}">
 						{{method_icon(sign_in.icon, sign_in.name)}}
-						<span class="email">Signed in as {{user.email}}</span>
+						<span class="email">{{account.name}}</span>
 						{% if admin %}
 							<span class="badge">admin</span>
 						{% endif %}
 					</button>
 					<div id="account-menu" class="account-menu" role="group" aria-label="Your account" hidden>
+						<form method="post" action="/account/name" class="account-name">
+							<label for="account-name">Name</label>
+							<input id="account-name" name="name" type="text" value="{{account.name}}" maxlength="60" required autocomplete="name">
+							<button type="submit" class="quiet">Save</button>
+						</form>
 						<dl class="account-details">
 							<dt>Email</dt>
 							<dd>{{account.email}}</dd>
@@ -224,7 +229,7 @@
 				</p>
 				<div class="students" role="table" aria-label="Students" data-owners="{{owners|join(',')}}">
 					<div class="student head" role="row">
-						<span role="columnheader">Email</span>
+						<span role="columnheader">Student</span>
 						<span role="columnheader">Sign-in</span>
 						<span role="columnheader">Machine</span>
 						<span role="columnheader">Assign</span>
@@ -232,8 +237,9 @@
 					{% for row in students %}
 						<div class="student" role="row">
 							<span role="cell">
-								{{row.email}}
+								<span class="student-name">{{row.name}}</span>
 								{% if row.admin %}<span class="badge">admin</span>{% endif %}
+								<br><span class="source">{{row.email}}</span>
 							</span>
 							<span role="cell">{{row.method}}</span>
 							<span role="cell">
