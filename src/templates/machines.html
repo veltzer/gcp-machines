@@ -164,11 +164,12 @@
 			{% if admin %}
 				<h2 id="students">Students</h2>
 				<p class="hint-left">
-					A student controls the machines whose owner label is their
-					assignment. An assignment made here wins; otherwise an account
-					gets the one the roster lists for its email, once that email is
-					verified (always for Google and GitHub, after the mailed link for
-					a password account).
+					One row per person: signing in with Google, GitHub or a password
+					under the same verified email is the same user. A student controls
+					the machine whose owner label is their assignment. An assignment
+					made here wins; otherwise a user gets the one the roster lists for
+					their email. A password sign-up joins its user only once its email
+					is verified; until then it has a row of its own.
 				</p>
 				<div class="students" role="table" aria-label="Students" data-owners="{{owners|join(',')}}">
 					<div class="student head" role="row">
@@ -195,7 +196,7 @@
 							</span>
 							<div role="cell">
 								<form method="post" action="/admin/assign" class="assign">
-									<input type="hidden" name="subject" value="{{row.subject}}">
+									<input type="hidden" name="target" value="{{row.target}}">
 									<select name="owner" aria-label="Machine for {{row.email}}" data-selected="{{row.assigned or row.suggested}}">
 										<option value="">roster / none</option>
 									</select>

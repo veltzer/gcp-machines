@@ -1,42 +1,54 @@
 """
-User accounts, kept in Datastore (kind "user").
+Users and their logins, kept in Datastore.
 
-The key name of a user entity is a provider-qualified subject, the stable
-identity the user signed in with:
+A login (kind "login") is one way of signing in. Its key name is the
+provider-qualified subject, the stable identity the provider vouches for:
 
     google:<sub>      Sign in with Google (the ID token "sub" claim)
     github:<id>       Continue with GitHub (the numeric GitHub user id)
     email:<address>   email and password, registered here
     dev:<address>     the local development login (never on Cloud Run)
 
-Accounts are found by subject, never by email: an email can change hands at
-a provider, and an email typed into the password form proves nothing. So the
-same address used with Google and with a password is two accounts. Whether
-an account's email is trustworthy is kept in the "verified" field, true for
-Google and GitHub (both only hand over verified addresses), and for password
-accounts false until the link mailed to the address is followed (see
-verification.py).
+A user (kind "user", key name = the lowercased email) is the person: the
+same person signing in with Google, GitHub or a password is one user, and
+what belongs to them (an admin's machine assignment) lives on the user.
 
-Fields: email, name, picture, verified, owner (the machine owner label an
-admin assigned to this account, absent until then), created, last_login,
-and for password accounts only:
+A login joins the user of its email once that email is proven to be the
+person's, and never before: Google's email_verified, GitHub's verified
+primary address, or for a password login the mailed link followed (see
+verification.py). An address typed into the password form proves nothing,
+so an unverified password login stays on its own, owning nothing of the
+user's; otherwise anyone could register a student's address and walk into
+their account. A login joins once and stays: should the provider's address
+change later, the login keeps its user rather than moving to another.
+
+Login fields: email (as the provider last reported it), name, picture,
+verified, user (the key name of its user; absent until it joins one),
+owner (only on a login that has not joined a user: the machine owner label
+an admin assigned to it; it moves to the user on joining), created,
+last_login, and for password logins only:
 
     password_hash        werkzeug hash of the password
-    account_id           random, new each time the account is (re)created;
+    account_id           random, new each time the login is (re)created;
                          a session counts only while it carries the same
-                         one, so replacing an unverified account signs out
+                         one, so replacing an unverified login signs out
                          whoever was signed in to the old one
     verification_sent    when the last verification mail went out
     verification_token   the secret in that mail's link; see
                          auth.check_verification
+
+User fields: email, name, picture, owner (the machine owner label an admin
+assigned, absent until then), created, last_login.
 """
 
+import dataclasses
 import datetime
 import secrets
 
 from google.cloud import datastore
 
-KIND = "user"
+LOGIN = "login"
+USER = "user"
 
 # never indexed: nobody queries by them, and an index on the hash would be a
 # second copy of it
@@ -47,34 +59,128 @@ def now():
     return datetime.datetime.now(datetime.UTC)
 
 
-def get(client, subject):
-    """ the user entity for a subject, or None """
-    return client.get(client.key(KIND, subject))
+@dataclasses.dataclass(frozen=True)
+class Account:
+    """
+    Who is signed in: the login they used and the user it belongs to, or
+    None while it belongs to none (an unverified password login). The
+    Students table also makes one of a user alone, with no login.
+    """
+
+    login: datastore.Entity | None
+    user: datastore.Entity | None
+
+    @property
+    def subject(self):
+        return self.login.key.name if self.login is not None else ""
+
+    @property
+    def method(self):
+        """ "google", "github", "email" or "dev" """
+        return self.subject.split(":", 1)[0]
+
+    @property
+    def email(self):
+        if self.user is not None:
+            return self.user.key.name
+        return self.login.get("email", "") if self.login is not None else ""
+
+    @property
+    def verified(self):
+        """ whether the email is proven to be this person's: exactly when the login has a user """
+        return self.user is not None
+
+    @property
+    def owner(self):
+        """ the machine owner label an admin assigned, or None """
+        entity = self.user if self.user is not None else self.login
+        return entity.get("owner") if entity is not None else None
+
+    @property
+    def target(self):
+        """ what an admin's assignment is stored on (see set_owner) """
+        return f"user:{self.email}" if self.user is not None else f"login:{self.subject}"
+
+    @property
+    def needs_verification(self):
+        return self.login is not None and self.method == "email" and not self.login.get("verified")
+
+
+def get_login(client, subject):
+    """ the login entity for a subject, or None """
+    return client.get(client.key(LOGIN, subject))
+
+
+def get_user(client, email):
+    """ the user entity for an email, or None """
+    return client.get(client.key(USER, email))
+
+
+def load(client, subject):
+    """ the Account signed in with subject, or None when there is no such login """
+    login = get_login(client, subject)
+    if login is None:
+        return None
+    user = get_user(client, login["user"]) if login.get("user") else None
+    return Account(login, user)
+
+
+def join(client, login):
+    """
+    Attach a login whose email is verified to the user of that email,
+    creating the user on first sight. An assignment the login carried moves
+    to the user unless the user already has one. Returns the user entity.
+    """
+    email = login["email"]
+    with client.transaction():
+        user = get_user(client, email)
+        if user is None:
+            user = datastore.Entity(key=client.key(USER, email), exclude_from_indexes=("picture",))
+            user.update({"email": email, "created": now()})
+        user["name"] = user.get("name") or login.get("name", "")
+        user["picture"] = user.get("picture") or login.get("picture", "")
+        user["last_login"] = now()
+        owner = login.pop("owner", None)
+        if owner and not user.get("owner"):
+            user["owner"] = owner
+        login["user"] = email
+        client.put(user)
+        client.put(login)
+    return user
 
 
 def upsert_from_provider(client, subject, email, name, picture, verified):
     """
-    Find or create the account of a third-party sign-in and refresh its
-    profile fields, which the provider owns. Returns the entity.
+    Find or create the login of a third-party sign-in, refresh the profile
+    fields the provider owns, and join it to its user when its email is
+    verified and it has none yet. Returns the Account.
     """
+    email = email.strip().lower()
     with client.transaction():
-        entity = get(client, subject)
-        if entity is None:
-            entity = datastore.Entity(key=client.key(KIND, subject), exclude_from_indexes=UNINDEXED)
-            entity["created"] = now()
-        entity["email"] = email.strip().lower()
-        entity["name"] = name
-        entity["picture"] = picture
-        entity["verified"] = verified
-        entity["last_login"] = now()
-        client.put(entity)
-    return entity
+        login = get_login(client, subject)
+        if login is None:
+            login = datastore.Entity(key=client.key(LOGIN, subject), exclude_from_indexes=UNINDEXED)
+            login["created"] = now()
+        login["email"] = email
+        login["name"] = name
+        login["picture"] = picture
+        login["verified"] = verified
+        login["last_login"] = now()
+        client.put(login)
+    if login.get("user"):
+        user = get_user(client, login["user"])
+        if user is not None:
+            touch(client, login, user)
+            return Account(login, user)
+    if verified and email:
+        return Account(login, join(client, login))
+    return Account(login, None)
 
 
 def create_password_account(client, email, password_hash):
     """
-    Register an email and password account. Returns the new entity, or None
-    when the address already has a verified password account.
+    Register an email and password login. Returns the new Account, or None
+    when the address already has a verified password login.
 
     An unverified one is replaced: it proves nothing about who owns the
     address, so it must not keep the address from its owner, who may also
@@ -83,15 +189,16 @@ def create_password_account(client, email, password_hash):
     mails and the secret of the last one. Keeping that secret is safe: it is
     only in the mailbox, and it verifies only a session that also knows the
     new password (see auth.check_verification). It lets the address's owner
-    use the mail they already have.
+    use the mail they already have. An unverified login never joined a
+    user, so replacing it takes nothing from anyone.
     """
     subject = f"email:{email}"
     with client.transaction():
-        existing = get(client, subject)
+        existing = get_login(client, subject)
         if existing is not None and existing.get("verified"):
             return None
-        entity = datastore.Entity(key=client.key(KIND, subject), exclude_from_indexes=UNINDEXED)
-        entity.update({
+        login = datastore.Entity(key=client.key(LOGIN, subject), exclude_from_indexes=UNINDEXED)
+        login.update({
             "email": email,
             "name": email.split("@")[0],
             "picture": "",
@@ -104,40 +211,47 @@ def create_password_account(client, email, password_hash):
         if existing is not None:
             for field in ("verification_sent", "verification_token"):
                 if field in existing:
-                    entity[field] = existing[field]
-        client.put(entity)
-    return entity
+                    login[field] = existing[field]
+        client.put(login)
+    return Account(login, None)
 
 
-def touch(client, entity):
-    """ record a login on an existing account """
-    entity["last_login"] = now()
-    client.put(entity)
+def touch(client, login, user=None):
+    """ record a sign-in """
+    login["last_login"] = now()
+    client.put(login)
+    if user is not None:
+        user["last_login"] = now()
+        client.put(user)
 
 
-def mark_verification_sent(client, entity, token):
+def mark_verification_sent(client, login, token):
     """ record when the verification mail went out (which paces resending) and its link's secret """
-    entity["verification_sent"] = now()
-    entity["verification_token"] = token
-    client.put(entity)
+    login["verification_sent"] = now()
+    login["verification_token"] = token
+    client.put(login)
 
 
-def mark_verified(client, entity):
-    """ the account's email was shown to be its owner's """
-    entity["verified"] = True
-    entity.pop("verification_sent", None)
-    entity.pop("verification_token", None)
-    client.put(entity)
+def mark_verified(client, login):
+    """ the password login's email was shown to be its owner's: it joins that email's user """
+    login["verified"] = True
+    login.pop("verification_sent", None)
+    login.pop("verification_token", None)
+    return join(client, login)
 
 
-def set_owner(client, subject, owner):
+def set_owner(client, target, owner):
     """
-    Assign a machine owner label to an account, or with an empty owner clear
-    the assignment. Returns False when there is no such account.
+    Assign a machine owner label to "user:<email>" or "login:<subject>" (a
+    login with no user yet), or with an empty owner clear the assignment.
+    Returns False when there is no such user or user-less login.
     """
+    kind, _, name = target.partition(":")
+    if kind not in (USER, LOGIN) or not name:
+        return False
     with client.transaction():
-        entity = get(client, subject)
-        if entity is None:
+        entity = client.get(client.key(kind, name))
+        if entity is None or (kind == LOGIN and entity.get("user")):
             return False
         if owner:
             entity["owner"] = owner

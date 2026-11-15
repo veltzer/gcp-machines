@@ -19,7 +19,8 @@ Identity Platform mails at sign-up (see verification.py), in a browser
 signed in to that account (see check_verification).
 
 Whichever way was used, the signed Flask session cookie then holds only the
-account's subject (the Datastore key name).
+login's subject (its Datastore key name); the login leads to its user, the
+person, who is the same whichever way they signed in (see users.py).
 """
 
 import dataclasses
@@ -94,14 +95,15 @@ def dev_login_enabled():
 
 
 def current_user():
-    """ the signed-in user's Datastore entity, or None """
+    """ the signed-in users.Account, or None """
     if "user" not in flask.g:
         subject = flask.session.get("subject")
-        entity = None if subject is None else users.get(datastore_client(), subject)
-        # a session of a password account that was replaced since no longer counts
-        if entity is not None and entity.get("account_id") and entity["account_id"] != flask.session.get("account_id"):
-            entity = None
-        flask.g.user = entity
+        account = None if subject is None else users.load(datastore_client(), subject)
+        # a session of a password login that was replaced since no longer counts
+        login = None if account is None else account.login
+        if login is not None and login.get("account_id") and login["account_id"] != flask.session.get("account_id"):
+            account = None
+        flask.g.user = account
     return flask.g.user
 
 
@@ -109,16 +111,16 @@ def current_user():
 VERIFY_TOKEN = "verify_token"
 
 
-def start_session(entity):
+def start_session(account):
     # a verification link followed before signing in still counts after
     pending = flask.session.get(VERIFY_TOKEN)
     flask.session.clear()
     if pending:
         flask.session[VERIFY_TOKEN] = pending
-    flask.session["subject"] = entity.key.name
-    if entity.get("account_id"):
-        flask.session["account_id"] = entity["account_id"]
-    flask.g.user = entity
+    flask.session["subject"] = account.subject
+    if account.login.get("account_id"):
+        flask.session["account_id"] = account.login["account_id"]
+    flask.g.user = account
 
 
 def login_required(view):
@@ -159,7 +161,7 @@ def google_login():
         claims = verify_google_token(flask.request.form.get("credential", ""))
     except ValueError:
         flask.abort(401, "Invalid Google sign-in token")
-    entity = users.upsert_from_provider(
+    account = users.upsert_from_provider(
         datastore_client(),
         f"google:{claims['sub']}",
         claims.get("email", ""),
@@ -167,7 +169,7 @@ def google_login():
         claims.get("picture", ""),
         verified=bool(claims.get("email_verified")),
     )
-    start_session(entity)
+    start_session(account)
     return flask.redirect(flask.url_for("root"))
 
 
@@ -193,35 +195,31 @@ def email_register():
     email, password = _email_credentials()
     if len(password) < PASSWORD_MIN_LENGTH:
         flask.abort(400, f"use at least {PASSWORD_MIN_LENGTH} characters for the password")
-    entity = users.create_password_account(datastore_client(), email, generate_password_hash(password))
-    if entity is None:
+    account = users.create_password_account(datastore_client(), email, generate_password_hash(password))
+    if account is None:
         flask.abort(409, "there is already an account with this email, sign in instead")
-    start_session(entity)
-    send_verification(entity)
+    start_session(account)
+    send_verification(account.login)
     return flask.jsonify({"next": flask.url_for("root")})
 
 
 @bp.route("/email/login", methods=["POST"])
 def email_login():
     email, password = _email_credentials()
-    entity = users.get(datastore_client(), f"email:{email}")
+    account = users.load(datastore_client(), f"email:{email}")
     # one message for both failures, so the form does not reveal which emails have accounts
-    hashed = None if entity is None else entity.get("password_hash")
+    hashed = None if account is None else account.login.get("password_hash")
     if not hashed or not check_password_hash(hashed, password):
         flask.abort(401, "wrong email or password")
-    users.touch(datastore_client(), entity)
-    start_session(entity)
+    users.touch(datastore_client(), account.login, account.user)
+    start_session(account)
     return flask.jsonify({"next": flask.url_for("root")})
 
 
 # ─── verifying the email of a password account ──────────────────────────────
 
-def needs_verification(user):
-    return user.key.name.startswith("email:") and not user.get("verified")
-
-
 def send_verification(entity):
-    """ mail the account's address a verification link, and say so on the next page """
+    """ mail a password login's address a verification link, and say so on the next page """
     sent = entity.get("verification_sent")
     if sent is not None and users.now() - sent < RESEND_INTERVAL:
         flask.flash("A link was mailed less than a minute ago. Wait a little before asking for another.")
@@ -240,9 +238,10 @@ def send_verification(entity):
 
 def check_verification(user):
     """
-    Whether a password account's address was verified by now, marking it so
-    when it was. Asked on each visit until it is; a failed check counts as
-    not yet.
+    Whether a password login's address was verified by now, marking it so
+    (which joins it to that address's user) when it was. Asked on each
+    visit until it is; a failed check counts as not yet. Returns the
+    account as it is now.
 
     Identity Platform only knows that someone followed the link mailed to
     the address, not for which account: anyone can register any address,
@@ -253,21 +252,23 @@ def check_verification(user):
     account, password and all. Otherwise registering a student's address
     and waiting for them to click would take over their machine.
     """
-    if not needs_verification(user):
-        return
+    if not user.needs_verification:
+        return user
+    login = user.login
     token = flask.session.get(VERIFY_TOKEN, "")
-    expected = user.get("verification_token", "")
+    expected = login.get("verification_token", "")
     if not token or not expected or not hmac.compare_digest(token, expected):
-        return
+        return user
     try:
-        verified = verifier().verified(user["email"])
+        verified = verifier().verified(login["email"])
     except (VerificationError, requests.RequestException, ValueError) as error:
-        logger.warning("verification check of %s failed: %s", user["email"], error)
-        return
+        logger.warning("verification check of %s failed: %s", login["email"], error)
+        return user
     if verified:
-        users.mark_verified(datastore_client(), user)
+        flask.g.user = users.Account(login, users.mark_verified(datastore_client(), login))
         flask.session.pop(VERIFY_TOKEN, None)
         flask.flash("Your email is verified.")
+    return flask.g.user
 
 
 @bp.route("/verify/confirm", methods=["GET"])
@@ -289,8 +290,8 @@ def verify_confirm():
 @login_required
 def resend_verification():
     user = current_user()
-    if needs_verification(user):
-        send_verification(user)
+    if user.needs_verification:
+        send_verification(user.login)
     return flask.redirect(flask.url_for("root"))
 
 
@@ -421,8 +422,8 @@ def oauth_callback(provider):
         subject, email, name, picture = fetch_identity(oauth, token)
     except (OAuthError, requests.RequestException, ValueError, KeyError):
         return _back_with_error(f"{oauth.name} sign-in failed, try again")
-    entity = users.upsert_from_provider(datastore_client(), subject, email, name, picture, verified=bool(email))
-    start_session(entity)
+    account = users.upsert_from_provider(datastore_client(), subject, email, name, picture, verified=bool(email))
+    start_session(account)
     return flask.redirect(flask.url_for("root"))
 
 
@@ -436,8 +437,8 @@ def dev_login():
     if not email:
         flask.abort(400, "email is required")
     # verified, so the admin list and the roster can be tried out locally
-    entity = users.upsert_from_provider(datastore_client(), f"dev:{email}", email, email.split("@")[0], "", verified=True)
-    start_session(entity)
+    account = users.upsert_from_provider(datastore_client(), f"dev:{email}", email, email.split("@")[0], "", verified=True)
+    start_session(account)
     return flask.redirect(flask.url_for("root"))
 
 

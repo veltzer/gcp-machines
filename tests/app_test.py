@@ -173,13 +173,24 @@ def set_mapping(module, mapping):
 
 
 def add_user(module, subject, email, verified=True, owner=None):
-    """Creates an account in the fake Datastore and returns it."""
-    entity = datastore.Entity(key=FakeKey("user", subject))
-    entity.update({"email": email, "name": email.split("@")[0], "picture": "", "verified": verified})
+    """
+    Creates a login in the fake Datastore, joined to the user of its email
+    when verified (which then holds the assignment), and returns the login.
+    """
+    login = datastore.Entity(key=FakeKey("login", subject))
+    login.update({"email": email, "name": email.split("@")[0], "picture": "", "verified": verified})
+    holder = login
+    if verified:
+        login["user"] = email
+        holder = module.datastore_client.get(FakeKey("user", email))
+        if holder is None:
+            holder = datastore.Entity(key=FakeKey("user", email))
+            holder.update({"email": email, "name": email.split("@")[0], "picture": ""})
     if owner is not None:
-        entity["owner"] = owner
-    module.datastore_client.put(entity)
-    return entity
+        holder["owner"] = owner
+    module.datastore_client.put(holder)
+    module.datastore_client.put(login)
+    return login
 
 
 def signed_in_client(module, email="admin@gmail.com", subject=None, verified=True, owner=None):
@@ -414,7 +425,7 @@ def test_register_then_sign_in_with_password():
     response = client.post("/auth/email/register", json={"email": " New@Example.com ", "password": "longenough"})
     assert response.status_code == 200
     assert response.get_json() == {"next": "/"}
-    stored = module.datastore_client.entities[("user", "email:new@example.com")]
+    stored = module.datastore_client.entities[("login", "email:new@example.com")]
     assert stored["verified"] is False
     assert stored["password_hash"] != "longenough"
     assert "Signed in as new@example.com" in client.get("/").get_data(as_text=True)
@@ -432,7 +443,7 @@ def test_register_refuses_short_password_and_duplicates():
     assert response.status_code == 400
     assert "error" in response.get_json()
     assert client.post("/auth/email/register", json={"email": "a@example.com", "password": "longenough"}).status_code == 200
-    module.datastore_client.entities[("user", "email:a@example.com")]["verified"] = True
+    module.datastore_client.entities[("login", "email:a@example.com")]["verified"] = True
     response = module.app.test_client().post("/auth/email/register", json={"email": "a@example.com", "password": "different1"})
     assert response.status_code == 409
 
@@ -457,10 +468,121 @@ def test_google_login_checks_csrf_and_creates_verified_account():
         client.set_cookie("g_csrf_token", "tok")
         response = client.post("/auth/login", data={"credential": "x", "g_csrf_token": "tok"})
     assert response.status_code == 302
-    stored = module.datastore_client.entities[("user", "google:123")]
+    stored = module.datastore_client.entities[("login", "google:123")]
     assert stored["verified"] is True
     assert stored["email"] == "admin@gmail.com"
     assert "badge" in client.get("/").get_data(as_text=True)
+
+
+# ─── one user, several logins ────────────────────────────────────────────────
+
+GITHUB = {"GITHUB_CLIENT_ID": "gh-id", "GITHUB_CLIENT_SECRET": "gh-secret"}
+
+
+def google_sign_in(module, client, sub, email, verified=True):
+    """Signs the client in with Google as the given identity."""
+    claims = {"sub": sub, "email": email, "email_verified": verified, "name": email.split("@")[0], "picture": ""}
+    with unittest.mock.patch("src.auth.verify_google_token", return_value=claims):
+        client.set_cookie("g_csrf_token", "tok")
+        assert client.post("/auth/login", data={"credential": "x", "g_csrf_token": "tok"}).status_code == 302
+
+
+def github_sign_in(client, github_id, email):
+    """Signs the client in with GitHub as the given identity; email "" means no verified primary address."""
+    client.get("/auth/oauth/github")
+    with client.session_transaction() as session:
+        state = session["oauth_state"]
+    identity = (f"github:{github_id}", email, "Name", "")
+    with unittest.mock.patch("src.auth.exchange_code", return_value="token"), \
+            unittest.mock.patch("src.auth.fetch_identity", return_value=identity):
+        assert client.get(f"/auth/oauth/github/callback?state={state}&code=c").status_code == 302
+
+
+def test_google_and_github_with_the_same_email_are_one_user():
+    module, _fake_compute = load_app({**ADMIN, **GITHUB, "GOOGLE_CLIENT_ID": "client-id"})
+    google_sign_in(module, module.app.test_client(), "g1", "Keren@gmail.com")
+    github_sign_in(module.app.test_client(), 77, "keren@gmail.com")
+    entities = module.datastore_client.entities
+    assert entities[("login", "google:g1")]["user"] == "keren@gmail.com"
+    assert entities[("login", "github:77")]["user"] == "keren@gmail.com"
+    assert [name for kind, name in entities if kind == "user"] == ["keren@gmail.com"]
+    body = signed_in_client(module).get("/").get_data(as_text=True)
+    assert body.count("keren@gmail.com\n") == 1  # one row on the Students table
+    assert "GitHub, Google" in body
+
+
+def test_an_assignment_holds_for_every_way_the_user_signs_in():
+    module, _fake_compute = load_app({**ADMIN, **GITHUB, "GOOGLE_CLIENT_ID": "client-id"})
+    google = module.app.test_client()
+    google_sign_in(module, google, "g1", "keren@gmail.com")
+    admin = signed_in_client(module)
+    assert admin.post("/admin/assign", data={"target": "user:keren@gmail.com", "owner": "raz"}).status_code == 302
+    github = module.app.test_client()
+    github_sign_in(github, 77, "keren@gmail.com")
+    for client in (google, github):
+        body = client.get("/").get_data(as_text=True)
+        assert "machine-raz" in body
+        assert "machine-keren" not in body
+
+
+def test_an_unverified_password_sign_up_does_not_join_the_user():
+    module, _fake_compute = load_app(ADMIN)
+    add_user(module, "google:g1", "dana@proton.me", owner="raz")
+    squatter = module.app.test_client()
+    register(squatter)
+    assert "user" not in module.datastore_client.entities[("login", "email:dana@proton.me")]
+    body = squatter.get("/").get_data(as_text=True)
+    assert "machine-raz" not in body
+    assert "verify your email" in body
+    instances = set_instance_status(_fake_compute, "TERMINATED", owner="raz")
+    assert squatter.post("/start", data={"name": "machine-raz", "zone": "us-central1-a"}).status_code == 403
+    instances.start.assert_not_called()
+
+
+def test_a_verified_password_login_joins_the_user_of_its_email():
+    module, _fake_compute = load_app(ADMIN)
+    add_user(module, "google:g1", "dana@proton.me", owner="raz")
+    client = module.app.test_client()
+    register(client)
+    follow_link(module, client)
+    body = client.get("/").get_data(as_text=True)
+    assert "Your email is verified." in body
+    assert "machine-raz" in body
+    assert module.datastore_client.entities[("login", "email:dana@proton.me")]["user"] == "dana@proton.me"
+
+
+def test_an_assignment_on_an_unverified_login_moves_to_its_user_on_joining():
+    module, _fake_compute = load_app(ADMIN)
+    client = module.app.test_client()
+    register(client)
+    admin = signed_in_client(module)
+    assert admin.post("/admin/assign", data={"target": "login:email:dana@proton.me", "owner": "raz"}).status_code == 302
+    follow_link(module, client)
+    client.get("/")
+    entities = module.datastore_client.entities
+    assert entities[("user", "dana@proton.me")]["owner"] == "raz"
+    assert "owner" not in entities[("login", "email:dana@proton.me")]
+    # an assignment goes to the user now, not to the login
+    assert admin.post("/admin/assign", data={"target": "login:email:dana@proton.me", "owner": ""}).status_code == 404
+
+
+def test_a_login_stays_with_its_user_when_the_provider_email_changes():
+    module, _fake_compute = load_app({**ADMIN, **GITHUB})
+    github_sign_in(module.app.test_client(), 77, "keren@gmail.com")
+    github_sign_in(module.app.test_client(), 77, "keren@work.example")
+    login = module.datastore_client.entities[("login", "github:77")]
+    assert login["user"] == "keren@gmail.com"
+    assert login["email"] == "keren@work.example"
+    assert ("user", "keren@work.example") not in module.datastore_client.entities
+
+
+def test_github_without_a_verified_email_has_no_user():
+    module, _fake_compute = load_app({**ADMIN, **GITHUB})
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    client = module.app.test_client()
+    github_sign_in(client, 77, "")
+    assert "user" not in module.datastore_client.entities[("login", "github:77")]
+    assert "No machine is assigned to you" in client.get("/").get_data(as_text=True)
 
 
 def test_dev_login_only_when_enabled_and_never_on_cloud_run():
@@ -533,9 +655,9 @@ def test_admin_assigns_a_machine_to_a_password_account():
     module, fake_compute = load_app(ADMIN)
     add_user(module, "email:dana@example.com", "dana@example.com", verified=False)
     admin = signed_in_client(module)
-    response = admin.post("/admin/assign", data={"subject": "email:dana@example.com", "owner": "raz"})
+    response = admin.post("/admin/assign", data={"target": "login:email:dana@example.com", "owner": "raz"})
     assert response.status_code == 302
-    assert module.datastore_client.entities[("user", "email:dana@example.com")]["owner"] == "raz"
+    assert module.datastore_client.entities[("login", "email:dana@example.com")]["owner"] == "raz"
     dana = module.app.test_client()
     with dana.session_transaction() as session:
         session["subject"] = "email:dana@example.com"
@@ -547,8 +669,8 @@ def test_admin_assigns_a_machine_to_a_password_account():
     assert "Starting machine machine-raz" in response.get_data(as_text=True)
     instances.start.assert_called_once()
     # clearing it takes the machine away again
-    admin.post("/admin/assign", data={"subject": "email:dana@example.com", "owner": ""})
-    assert "owner" not in module.datastore_client.entities[("user", "email:dana@example.com")]
+    admin.post("/admin/assign", data={"target": "login:email:dana@example.com", "owner": ""})
+    assert "owner" not in module.datastore_client.entities[("login", "email:dana@example.com")]
     assert "machine-raz" not in dana.get("/").get_data(as_text=True)
 
 
@@ -565,20 +687,20 @@ def test_only_admins_assign():
     module, _fake_compute = load_app(ADMIN)
     add_user(module, "email:dana@example.com", "dana@example.com", verified=False)
     student = signed_in_client(module, "keren@gmail.com")
-    response = student.post("/admin/assign", data={"subject": "google:keren@gmail.com", "owner": "raz"})
+    response = student.post("/admin/assign", data={"target": "user:keren@gmail.com", "owner": "raz"})
     assert response.status_code == 403
-    assert "owner" not in module.datastore_client.entities[("user", "google:keren@gmail.com")]
-    anonymous = module.app.test_client().post("/admin/assign", data={"subject": "email:dana@example.com", "owner": "raz"})
+    assert "owner" not in module.datastore_client.entities[("user", "keren@gmail.com")]
+    anonymous = module.app.test_client().post("/admin/assign", data={"target": "login:email:dana@example.com", "owner": "raz"})
     assert anonymous.status_code == 302
-    assert "owner" not in module.datastore_client.entities[("user", "email:dana@example.com")]
+    assert "owner" not in module.datastore_client.entities[("login", "email:dana@example.com")]
 
 
 def test_assign_refuses_unknown_machines_and_accounts():
     module, _fake_compute = load_app(ADMIN)
     add_user(module, "email:dana@example.com", "dana@example.com", verified=False)
     admin = signed_in_client(module)
-    assert admin.post("/admin/assign", data={"subject": "email:dana@example.com", "owner": "nobody"}).status_code == 400
-    assert admin.post("/admin/assign", data={"subject": "email:ghost@example.com", "owner": "raz"}).status_code == 404
+    assert admin.post("/admin/assign", data={"target": "login:email:dana@example.com", "owner": "nobody"}).status_code == 400
+    assert admin.post("/admin/assign", data={"target": "login:email:ghost@example.com", "owner": "raz"}).status_code == 404
 
 
 # ─── machine keys ────────────────────────────────────────────────────────────
@@ -852,7 +974,7 @@ def test_register_mails_a_verification_link():
     assert register(client).status_code == 200
     [(to, url)] = module.app.config["VERIFIER"].sent
     assert to == "dana@proton.me"
-    token = module.datastore_client.entities[("user", "email:dana@proton.me")]["verification_token"]
+    token = module.datastore_client.entities[("login", "email:dana@proton.me")]["verification_token"]
     assert url == f"http://localhost/auth/verify/confirm?token={token}"
     body = client.get("/").get_data(as_text=True)
     assert "We mailed a verification link to dana@proton.me." in body
@@ -870,7 +992,7 @@ def test_verified_password_account_gets_its_roster_machine():
     assert "Your email is verified." in body
     assert "machine-raz" in body
     assert "Send again" not in body
-    assert module.datastore_client.entities[("user", "email:dana@proton.me")]["verified"] is True
+    assert module.datastore_client.entities[("login", "email:dana@proton.me")]["verified"] is True
 
 
 def test_verified_password_account_can_be_admin():
@@ -890,7 +1012,7 @@ def test_resend_is_paced():
     assert response.status_code == 302
     assert "less than a minute ago" in client.get("/").get_data(as_text=True)
     assert len(module.app.config["VERIFIER"].sent) == 1
-    entity = module.datastore_client.entities[("user", "email:dana@proton.me")]
+    entity = module.datastore_client.entities[("login", "email:dana@proton.me")]
     entity["verification_sent"] -= datetime.timedelta(minutes=2)
     client.post("/auth/verify/resend")
     assert len(module.app.config["VERIFIER"].sent) == 2
@@ -912,17 +1034,17 @@ def test_failed_mail_still_creates_the_account():
     body = client.get("/").get_data(as_text=True)
     assert "could not be sent" in body
     assert "Signed in as dana@proton.me" in body
-    assert "verification_sent" not in module.datastore_client.entities[("user", "email:dana@proton.me")]
+    assert "verification_sent" not in module.datastore_client.entities[("login", "email:dana@proton.me")]
 
 
 def test_registering_again_replaces_an_unverified_account():
     """An unverified account proves nothing, so it cannot keep an address (or an assignment) from its owner."""
     module, _fake_compute = load_app()
     register(module.app.test_client(), password="squatter1")
-    module.datastore_client.entities[("user", "email:dana@proton.me")]["owner"] = "raz"
+    module.datastore_client.entities[("login", "email:dana@proton.me")]["owner"] = "raz"
     client = module.app.test_client()
     assert register(client, password="realowner").status_code == 200
-    stored = module.datastore_client.entities[("user", "email:dana@proton.me")]
+    stored = module.datastore_client.entities[("login", "email:dana@proton.me")]
     assert "owner" not in stored
     # the second registration came within the minute: no second mail, the first link still serves
     assert len(module.app.config["VERIFIER"].sent) == 1
@@ -938,7 +1060,7 @@ def test_failed_verification_check_counts_as_not_yet():
     module.app.config["VERIFIER"].fail = True
     follow_link(module, client)
     assert "verify your email" in client.get("/").get_data(as_text=True)
-    assert module.datastore_client.entities[("user", "email:dana@proton.me")]["verified"] is False
+    assert module.datastore_client.entities[("login", "email:dana@proton.me")]["verified"] is False
 
 
 def test_followed_link_alone_does_not_verify():
@@ -970,7 +1092,7 @@ def test_squatter_cannot_get_verified_by_the_owner_clicking():
     body = squatter.get("/").get_data(as_text=True)
     assert "verify your email" in body
     assert "machine-raz" not in body
-    assert module.datastore_client.entities[("user", "email:dana@proton.me")]["verified"] is False
+    assert module.datastore_client.entities[("login", "email:dana@proton.me")]["verified"] is False
 
 
 def test_link_followed_in_another_browser_counts_after_signing_in_there():
@@ -999,7 +1121,7 @@ def test_replacing_an_unverified_account_signs_out_its_sessions():
     register(squatter, password="squatter1")
     assert follow_link(module, student).status_code == 302
     assert "Signed in as" not in student.get("/").get_data(as_text=True)
-    assert module.datastore_client.entities[("user", "email:dana@proton.me")]["verified"] is False
+    assert module.datastore_client.entities[("login", "email:dana@proton.me")]["verified"] is False
     # registering again takes the address back, and the mail already in hand still serves
     register(student, password="realowner")
     assert "Your email is verified." in student.get("/").get_data(as_text=True)

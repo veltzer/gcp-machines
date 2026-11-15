@@ -125,23 +125,24 @@ def email_to_owner():
 
 
 def is_admin(user):
-    """ admins see and control all machines """
-    return bool(user.get("verified")) and user.get("email", "").lower() in ADMIN_EMAILS
+    """ admins see and control all machines; only a verified email counts """
+    return user.verified and user.email.lower() in ADMIN_EMAILS
 
 
 def assignment(user):
     """
     The machine owner label this account may control and where that comes
     from: ("<owner>", "assigned") when an admin assigned it on the Students
-    table, ("<owner>", "roster") when the account's verified email is in the
-    course roster, (None, None) otherwise. An unverified password account
-    is never matched by email, or anyone could register a student's address
-    and take over their machine.
+    table, ("<owner>", "roster") when the user's email is in the course
+    roster, (None, None) otherwise. Only a user is matched by email: a login
+    with none yet (an unverified password login) proves nothing about the
+    address, or anyone could register a student's address and take over
+    their machine.
     """
-    if user.get("owner"):
-        return user["owner"], "assigned"
-    if user.get("verified") and user.get("email"):
-        owner = email_to_owner().get(user["email"].lower())
+    if user.owner:
+        return user.owner, "assigned"
+    if user.verified:
+        owner = email_to_owner().get(user.email.lower())
         if owner is not None:
             return owner, "roster"
     return None, None
@@ -164,44 +165,50 @@ METHOD_ICONS = {"google": "google", "github": "github", "email": "email", "dev":
 
 def sign_in_method(user):
     """ how this account signed in, for the top bar: {"name", "icon"} """
-    key = user.key.name.split(":", 1)[0]
-    name = "email and password" if key == "email" else METHODS.get(key, key)
-    return {"name": name, "icon": METHOD_ICONS.get(key, "email")}
+    name = "email and password" if user.method == "email" else METHODS.get(user.method, user.method)
+    return {"name": name, "icon": METHOD_ICONS.get(user.method, "email")}
 
 
 def students_table(machines):
     """
-    Every account and its machine, then the roster students who have not
-    signed up yet (or only with a password, which the roster does not
-    match): what the admin sees on the Students table. Also annotates each
-    machine with the emails it is assigned to.
+    Every user (with all the ways they sign in) and every login that has no
+    user yet (an unverified password login), then the roster students who
+    have not signed up: what the admin sees on the Students table. Also
+    annotates each machine with the emails it is assigned to.
     """
+    logins = list(datastore_client.query(kind=users.LOGIN).fetch())
+    methods = {}
+    for login in logins:
+        if login.get("user"):
+            methods.setdefault(login["user"], []).append(login.key.name.split(":", 1)[0])
+    accounts = [users.Account(None, user) for user in datastore_client.query(kind=users.USER).fetch()]
+    accounts += [users.Account(login, None) for login in logins if not login.get("user")]
     rows = []
-    signed_up = set()
-    for user in datastore_client.query(kind="user").fetch():
-        subject = user.key.name
-        owner, source = assignment(user)
-        if user.get("verified"):
-            signed_up.add(user.get("email", "").lower())
-        # The roster's machine for an account whose email it cannot trust
-        # (a password account): offered to the admin to confirm, never given.
-        suggested = ""
-        if owner is None and not user.get("verified"):
-            suggested = email_to_owner().get(user.get("email", "").lower(), "")
-        method = METHODS.get(subject.split(":", 1)[0], subject.split(":", 1)[0])
-        if auth.needs_verification(user):
-            method += " (email not verified yet)"
+    for account in accounts:
+        owner, source = assignment(account)
+        if account.verified:
+            names = sorted(METHODS.get(m, m) for m in methods.get(account.email, []))
+            method = ", ".join(names) or "none"
+            suggested = ""
+        else:
+            method = METHODS.get(account.method, account.method)
+            if account.needs_verification:
+                method += " (email not verified yet)"
+            # the roster's machine for an address it cannot trust yet:
+            # offered to the admin to confirm, never given
+            suggested = "" if owner else email_to_owner().get(account.email.lower(), "")
         rows.append({
-            "subject": subject,
-            "email": user.get("email", ""),
+            "target": account.target,
+            "email": account.email,
             "method": method,
-            "admin": is_admin(user),
+            "admin": is_admin(account),
             "owner": owner,
             "source": source,
-            "assigned": user.get("owner") or "",
+            "assigned": account.owner or "",
             "suggested": suggested,
         })
     rows.sort(key=lambda row: (row["email"], row["method"]))
+    signed_up = {row["email"].lower() for row in rows if row["target"].startswith("user:")}
     pending = [
         {"email": email, "owner": owner}
         for email, owner in sorted(email_to_owner().items())
@@ -346,7 +353,7 @@ def root():
     user = auth.current_user()
     if user is None:
         return flask.send_from_directory(HTML_DIR, "index.html")
-    auth.check_verification(user)
+    user = auth.check_verification(user)
     machines = get_machines()
     admin = is_admin(user)
     students = pending = owners = summary = None
@@ -364,7 +371,7 @@ def root():
         machines=machines,
         user=user,
         admin=admin,
-        unverified=auth.needs_verification(user),
+        unverified=user.needs_verification,
         sign_in=sign_in_method(user),
         students=students,
         pending=pending,
@@ -434,16 +441,17 @@ def download_key():
 @auth.login_required
 def assign():
     """
-    Assign a machine (by its owner label) to an account, or clear the
-    assignment so the account falls back to the roster. Admins only.
+    Assign a machine (by its owner label) to a user, or to a login that has
+    no user yet, or clear the assignment so it falls back to the roster.
+    Admins only.
     """
     if not is_admin(auth.current_user()):
         flask.abort(403, "Only an admin may assign machines.")
-    subject = flask.request.form["subject"]
+    target = flask.request.form["target"]
     owner = flask.request.form["owner"]
     if owner and owner not in {m["owner"] for m in get_machines()}:
         flask.abort(400, "There is no machine with that owner.")
-    if not users.set_owner(datastore_client, subject, owner):
+    if not users.set_owner(datastore_client, target, owner):
         flask.abort(404, "There is no such account.")
     return flask.redirect(flask.url_for("root", _anchor="students"))
 

@@ -36,7 +36,7 @@ file says.
 Anyone can create an account. The sign-in page (`src/html/index.html`,
 `src/static/app.js`, the scene in `src/static/scene.svg`) follows
 gcp-myworld's and offers three ways in; `src/auth.py` does the work and
-the accounts live in Datastore (kind `user`, see `src/users.py`):
+users and their logins live in Datastore (see `src/users.py`):
 
 - Google: the Google Identity Services button in redirect mode. Google
   POSTs a signed ID token to `/auth/login`; the server checks the CSRF
@@ -48,25 +48,36 @@ the accounts live in Datastore (kind `user`, see `src/users.py`):
   `POST /auth/email/login` (JSON). Always available. Registering mails a
   verification link to the address (next section).
 
-Accounts are keyed by how they signed in (`google:<sub>`,
-`github:<id>`, `email:<address>`), never by email, so one address used
-two ways is two accounts. The session cookie holds only that key.
+Each way of signing in is a login (kind `login`, keyed `google:<sub>`,
+`github:<id>`, `email:<address>`), and each person is a user (kind
+`user`, keyed by the lowercased email). A login joins the user of its
+email once that email is verified: Google's `email_verified`, GitHub's
+verified primary address, a password login's mailed link followed. So
+Google, GitHub and a password under one verified address are one user,
+with one row on the Students table. A login joins once and stays, even
+if the provider's address changes later. The session cookie holds only
+the login's key.
 
-Which machines an account sees:
+Which machines a user sees:
 
-- An admin (an account with a verified email listed in
-  `gcp_admin_emails`) sees and controls every machine.
-- An account an admin assigned an owner to (the `owner` field of its
-  `user` entity) controls the machines with that `owner` label.
-- Otherwise an account with a verified email is looked up by it in the
-  course roster (kind `student`, pushed by `python scripts/iap.py sync`
-  from `data.gi/students.txt`). Google and GitHub accounts are verified
-  from the start, password accounts once their mailed link is followed.
-- An unverified password account is never matched by email, or anyone
-  could register a student's address and take over that student's
-  machine. Registering the same address again replaces it (password,
-  assignment and all), so a stranger cannot squat on an address either;
-  a verified one cannot be replaced.
+- An admin (a user whose email is listed in `gcp_admin_emails`) sees and
+  controls every machine.
+- A user an admin assigned an owner to (the `owner` field of the `user`
+  entity) controls the machine with that `owner` label, whichever way
+  they sign in.
+- Otherwise the user's email is looked up in the course roster (kind
+  `student`, pushed by `python scripts/iap.py sync` from
+  `data.gi/students.txt`).
+- An unverified password login has no user: it is never matched by email
+  and gets nothing of the user of that address, or anyone could register
+  a student's address and take over their machine. An admin may still
+  assign it a machine (stored on the login, moved to the user once the
+  login joins). Registering the same address again replaces it
+  (password, assignment and all), so a stranger cannot squat on an
+  address either; a verified one cannot be replaced.
+
+`scripts/migrate_logins.py` moved the accounts of before (one `user`
+entity per way of signing in) to this layout on 2026-11-15.
 
 ### Email verification
 
@@ -77,9 +88,9 @@ minute per address), the app creates a throwaway Identity Platform user for
 the address and has Google mail it a `VERIFY_EMAIL` link. The link opens
 Google's page on `veltzer-machines-id.firebaseapp.com`, which marks the
 address verified and offers Continue back to `machines.veltzer.org`. Each
-visit of an unverified account asks Identity Platform whether the address
-is verified yet; once it is, the account is marked verified and the
-throwaway user deleted.
+visit of an unverified password login asks Identity Platform whether the
+address is verified yet; once it is, the login is marked verified and
+joins the user of that address, and the throwaway user is deleted.
 
 All of it runs on the app's own credentials (the service account has
 `roles/identitytoolkit.admin`), no API key. Google does not let this
