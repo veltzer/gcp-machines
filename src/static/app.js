@@ -78,7 +78,7 @@ async function showBuild() {
 // ─── sign-in page ───────────────────────────────────────────────────────────
 
 function setupProviders(configured) {
-	for (const link of document.querySelectorAll(".method[data-provider]")) {
+	for (const link of document.querySelectorAll(".provider[data-provider]")) {
 		if (configured[link.dataset.provider]) {
 			continue;
 		}
@@ -139,16 +139,15 @@ function setupEmailForm(minLength) {
 	applyMode();
 }
 
-// The Email tile opens (and closes) the email and password form under the tiles.
-function setupEmailChoice() {
-	const tile = $("method-email");
-	const form = $("email-form");
-	tile.onclick = () => {
-		const open = form.hidden;
-		form.hidden = !open;
-		tile.setAttribute("aria-expanded", String(open));
+// the email icon opens the email form under the icons, and closes it again
+function setupEmailMethod() {
+	const button = $("email-method");
+	button.onclick = () => {
+		const open = $("email-form").hidden;
+		$("email-form").hidden = !open;
+		button.setAttribute("aria-expanded", String(open));
 		if (open) {
-			form.elements.email.focus();
+			$("email-form").elements.email.focus();
 		}
 	};
 }
@@ -165,7 +164,7 @@ async function indexPage() {
 		window.history.replaceState(null, "", "/");
 	}
 	setupProviders(config.providers);
-	setupEmailChoice();
+	setupEmailMethod();
 	setupEmailForm(config.password_min_length);
 	$("dev-login").hidden = !config.dev_login;
 }

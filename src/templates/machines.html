@@ -11,9 +11,9 @@
 	<body data-page="machines">
 		{# a sign-in method's icon; the paths are spelled out so the template stays plain HTML to tidy #}
 		{% macro method_icon(icon, alt) -%}
-			{% if icon == "google" %}<img class="method-icon" src="/static/google.svg" alt="{{alt}}">
-			{%- elif icon == "github" %}<img class="method-icon" src="/static/github.svg" alt="{{alt}}">
-			{%- else %}<img class="method-icon" src="/static/email.svg" alt="{{alt}}">{% endif %}
+			{% if icon == "google" %}<img class="login-icon" src="/static/google.svg" alt="{{alt}}">
+			{%- elif icon == "github" %}<img class="login-icon" src="/static/github.svg" alt="{{alt}}">
+			{%- else %}<img class="login-icon" src="/static/email.svg" alt="{{alt}}">{% endif %}
 		{%- endmacro %}
 		<header class="topbar">
 			<a class="brand" href="/">
@@ -80,12 +80,12 @@
 					</div>
 				</div>
 				<button id="settings-button" type="button" class="quiet with-icon" aria-haspopup="dialog" aria-controls="settings-dialog" aria-label="Settings" title="Settings">
-					<img class="method-icon" src="/static/settings.svg" alt="">
+					<img class="login-icon" src="/static/settings.svg" alt="">
 					<span class="button-label">Settings</span>
 				</button>
 				<form method="post" action="/auth/logout">
 					<button type="submit" class="quiet with-icon" aria-label="Sign out" title="Sign out">
-						<img class="method-icon" src="/static/signout.svg" alt="">
+						<img class="login-icon" src="/static/signout.svg" alt="">
 						<span class="button-label">Sign out</span>
 					</button>
 				</form>

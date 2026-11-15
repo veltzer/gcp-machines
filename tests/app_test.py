@@ -513,7 +513,7 @@ def test_sign_in_page_offers_three_icons():
     body = module.app.test_client().get("/").get_data(as_text=True)
     assert 'href="/auth/oauth/google"' in body
     assert 'href="/auth/oauth/github"' in body
-    assert 'id="method-email"' in body
+    assert 'id="email-method"' in body
     # the email form waits behind its icon
     assert '<form id="email-form" class="email-form" novalidate hidden>' in body
 
