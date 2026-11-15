@@ -15,7 +15,8 @@ when its client id and secret are set in the environment.
 
 Email accounts live entirely in Datastore, with werkzeug password hashes.
 Their address counts as verified once the student follows the link that
-Identity Platform mails at sign-up (see verification.py).
+Identity Platform mails at sign-up (see verification.py), in a browser
+signed in to that account (see check_verification).
 
 Whichever way was used, the signed Flask session cookie then holds only the
 account's subject (the Datastore key name).
@@ -96,13 +97,27 @@ def current_user():
     """ the signed-in user's Datastore entity, or None """
     if "user" not in flask.g:
         subject = flask.session.get("subject")
-        flask.g.user = None if subject is None else users.get(datastore_client(), subject)
+        entity = None if subject is None else users.get(datastore_client(), subject)
+        # a session of a password account that was replaced since no longer counts
+        if entity is not None and entity.get("account_id") and entity["account_id"] != flask.session.get("account_id"):
+            entity = None
+        flask.g.user = entity
     return flask.g.user
 
 
+# the session key holding the secret of a followed verification link
+VERIFY_TOKEN = "verify_token"
+
+
 def start_session(entity):
+    # a verification link followed before signing in still counts after
+    pending = flask.session.get(VERIFY_TOKEN)
     flask.session.clear()
+    if pending:
+        flask.session[VERIFY_TOKEN] = pending
     flask.session["subject"] = entity.key.name
+    if entity.get("account_id"):
+        flask.session["account_id"] = entity["account_id"]
     flask.g.user = entity
 
 
@@ -211,13 +226,15 @@ def send_verification(entity):
     if sent is not None and users.now() - sent < RESEND_INTERVAL:
         flask.flash("A link was mailed less than a minute ago. Wait a little before asking for another.")
         return
+    # The secret rides in the link's continue URL, so only the mailbox learns it
+    token = secrets.token_urlsafe(32)
     try:
-        verifier().send(entity["email"], _external_url("root"))
+        verifier().send(entity["email"], _external_url("auth.verify_confirm", token=token))
     except (VerificationError, requests.RequestException, ValueError) as error:
         logger.warning("verification mail to %s failed: %s", entity["email"], error)
         flask.flash("The verification mail could not be sent. Try Send again in a minute.")
         return
-    users.mark_verification_sent(datastore_client(), entity)
+    users.mark_verification_sent(datastore_client(), entity, token)
     flask.flash(f"We mailed a verification link to {entity['email']}.")
 
 
@@ -226,8 +243,21 @@ def check_verification(user):
     Whether a password account's address was verified by now, marking it so
     when it was. Asked on each visit until it is; a failed check counts as
     not yet.
+
+    Identity Platform only knows that someone followed the link mailed to
+    the address, not for which account: anyone can register any address,
+    and the mail Google then sends the address's owner is genuine. So an
+    account is verified only when the session asking also carries the
+    secret from that mail's continue URL (put there by verify_confirm),
+    proving the browser that followed the link is signed in to this very
+    account, password and all. Otherwise registering a student's address
+    and waiting for them to click would take over their machine.
     """
     if not needs_verification(user):
+        return
+    token = flask.session.get(VERIFY_TOKEN, "")
+    expected = user.get("verification_token", "")
+    if not token or not expected or not hmac.compare_digest(token, expected):
         return
     try:
         verified = verifier().verified(user["email"])
@@ -236,7 +266,23 @@ def check_verification(user):
         return
     if verified:
         users.mark_verified(datastore_client(), user)
+        flask.session.pop(VERIFY_TOKEN, None)
         flask.flash("Your email is verified.")
+
+
+@bp.route("/verify/confirm", methods=["GET"])
+def verify_confirm():
+    """
+    Where the Continue button of Google's verification page leads. Keeps the
+    link's secret in the session; the account is checked (check_verification)
+    once this browser is signed in to it, now or after signing in.
+    """
+    token = flask.request.args.get("token", "")
+    if token:
+        flask.session[VERIFY_TOKEN] = token
+    if current_user() is None:
+        return _back_with_error("Sign in with your email and password to finish verifying your email.")
+    return flask.redirect(flask.url_for("root"))
 
 
 @bp.route("/verify/resend", methods=["POST"])

@@ -10,12 +10,15 @@ import json
 import os
 import re
 import secrets
+import threading
 import time
 import urllib.parse
 import warnings
 
 import flask
 import google.auth
+import google_auth_httplib2
+import httplib2
 import markupsafe
 from google.cloud import datastore
 from googleapiclient import discovery
@@ -67,6 +70,20 @@ auth.configure(app)
 credentials, project_id = google.auth.default()
 compute = discovery.build("compute", "v1", credentials=credentials)
 secret_manager = discovery.build("secretmanager", "v1", credentials=credentials)
+
+# The service objects above may be shared, but the httplib2 connection they
+# carry is not thread-safe, and gunicorn serves requests on several threads.
+# So every request passes its thread's own connection: .execute(http=api_http()).
+_thread_local = threading.local()
+
+
+def api_http():
+    """ this thread's own authorized connection for the Google API clients """
+    http = getattr(_thread_local, "http", None)
+    if http is None:
+        http = google_auth_httplib2.AuthorizedHttp(credentials, http=httplib2.Http())
+        _thread_local.http = http
+    return http
 
 # Each machine's private ssh key lives in Secret Manager under this prefix
 # plus the instance name, put there by `scripts/machines.py create` (keep in
@@ -219,6 +236,42 @@ def redirect_to_canonical_host():
     return flask.redirect(url, code=308)
 
 
+# What a page may load: only this origin, plus the Google Identity Services
+# script, button frame and stylesheet the sign-in page uses (the sources
+# Google documents for GIS). frame-ancestors keeps other sites from framing
+# the Start/Suspend, Download key and Assign buttons (clickjacking).
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; "
+    "script-src 'self' https://accounts.google.com/gsi/client; "
+    "style-src 'self' https://accounts.google.com/gsi/style; "
+    "frame-src https://accounts.google.com/gsi/; "
+    "connect-src 'self' https://accounts.google.com/gsi/; "
+    "img-src 'self' data:; "
+    "object-src 'none'; "
+    "base-uri 'none'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'"
+)
+
+
+@app.after_request
+def security_headers(response):
+    """
+    Headers every response carries. The CSP goes on HTML pages only: an SVG
+    under /static has its own inline <style>, which the policy would block.
+    """
+    headers = response.headers
+    if response.mimetype == "text/html":
+        headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+    headers.setdefault("X-Frame-Options", "DENY")
+    headers.setdefault("X-Content-Type-Options", "nosniff")
+    # GIS needs the origin in the referrer; nothing needs more than that cross-site
+    headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    if "K_SERVICE" in os.environ:
+        headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
+
+
 @app.route("/app/health", methods=["GET"])
 def health():
     return "ok"
@@ -252,7 +305,7 @@ def get_machines():
     request = compute.instances().aggregatedList(project=project_id)
     all_instances = []
     while request is not None:
-        response = request.execute()
+        response = request.execute(http=api_http())
         for instances_data in response["items"].values():
             all_instances.extend(instances_data.get("instances", []))
         request = compute.instances().aggregatedList_next(
@@ -330,7 +383,7 @@ def get_instance_for(user, name, zone):
     # pylint: disable=no-member
     if not RESOURCE_NAME.fullmatch(name) or not RESOURCE_NAME.fullmatch(zone):
         flask.abort(400, "Bad machine name or zone.")
-    instance = compute.instances().get(project=project_id, zone=zone, instance=name).execute()
+    instance = compute.instances().get(project=project_id, zone=zone, instance=name).execute(http=api_http())
     if not is_admin(user):
         owner = instance.get("labels", {}).get("owner")
         if owner is None or owner_of(user) != owner:
@@ -347,7 +400,7 @@ def download_key():
     get_instance_for(auth.current_user(), name, flask.request.args["zone"])
     secret = f"projects/{project_id}/secrets/{KEY_SECRET_PREFIX}{name}/versions/latest"
     try:
-        version = secret_manager.projects().secrets().versions().access(name=secret).execute()
+        version = secret_manager.projects().secrets().versions().access(name=secret).execute(http=api_http())
     except HttpError as error:
         if error.resp.status == 404:
             flask.abort(404, "This machine has no downloadable key. Ask your instructor.")
@@ -389,13 +442,13 @@ def process():
     instance = get_instance_for(auth.current_user(), name, zone)
     status = instance["status"]
     if status == "SUSPENDED":
-        compute.instances().resume(project=project_id, zone=zone, instance=name).execute()
+        compute.instances().resume(project=project_id, zone=zone, instance=name).execute(http=api_http())
         action = "resume"
     elif status == "TERMINATED":
-        compute.instances().start(project=project_id, zone=zone, instance=name).execute()
+        compute.instances().start(project=project_id, zone=zone, instance=name).execute(http=api_http())
         action = "start"
     elif status == "RUNNING":
-        compute.instances().suspend(project=project_id, zone=zone, instance=name).execute()
+        compute.instances().suspend(project=project_id, zone=zone, instance=name).execute(http=api_http())
         action = "suspend"
     else:
         return (

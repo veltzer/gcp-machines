@@ -11,6 +11,7 @@ import datetime
 import importlib
 import os
 import sys
+import threading
 import unittest.mock
 
 import pytest
@@ -654,11 +655,29 @@ def register(client, email="dana@proton.me", password="longenough"):
     return client.post("/auth/email/register", json={"email": email, "password": password})
 
 
+def sign_in(client, email="dana@proton.me", password="longenough"):
+    return client.post("/auth/email/login", json={"email": email, "password": password})
+
+
+def follow_link(module, client, email="dana@proton.me"):
+    """
+    The owner of the address follows the last link mailed to it, on Google's
+    page, then presses Continue in the browser of the given client.
+    """
+    verifier = module.app.config["VERIFIER"]
+    url = [url for to, url in verifier.sent if to == email][-1]
+    verifier.followed.add(email)
+    return client.get(url.removeprefix("http://localhost"))
+
+
 def test_register_mails_a_verification_link():
     module, _fake_compute = load_app()
     client = module.app.test_client()
     assert register(client).status_code == 200
-    assert module.app.config["VERIFIER"].sent == [("dana@proton.me", "http://localhost/")]
+    [(to, url)] = module.app.config["VERIFIER"].sent
+    assert to == "dana@proton.me"
+    token = module.datastore_client.entities[("user", "email:dana@proton.me")]["verification_token"]
+    assert url == f"http://localhost/auth/verify/confirm?token={token}"
     body = client.get("/").get_data(as_text=True)
     assert "We mailed a verification link to dana@proton.me." in body
     assert "Send again" in body
@@ -670,7 +689,7 @@ def test_verified_password_account_gets_its_roster_machine():
     client = module.app.test_client()
     register(client)
     assert "machine-raz" not in client.get("/").get_data(as_text=True)
-    module.app.config["VERIFIER"].followed.add("dana@proton.me")
+    assert follow_link(module, client).status_code == 302
     body = client.get("/").get_data(as_text=True)
     assert "Your email is verified." in body
     assert "machine-raz" in body
@@ -682,7 +701,7 @@ def test_verified_password_account_can_be_admin():
     module, _fake_compute = load_app(ADMIN)
     client = module.app.test_client()
     register(client, "admin@gmail.com")
-    module.app.config["VERIFIER"].followed.add("admin@gmail.com")
+    follow_link(module, client, "admin@gmail.com")
     assert "All machines" in client.get("/").get_data(as_text=True)
 
 
@@ -741,7 +760,75 @@ def test_failed_verification_check_counts_as_not_yet():
     client = module.app.test_client()
     register(client)
     module.app.config["VERIFIER"].fail = True
+    follow_link(module, client)
     assert "verify your email" in client.get("/").get_data(as_text=True)
+    assert module.datastore_client.entities[("user", "email:dana@proton.me")]["verified"] is False
+
+
+def test_followed_link_alone_does_not_verify():
+    """Google saying the address was verified is not enough without the link's secret in the session."""
+    module, _fake_compute = load_app()
+    client = module.app.test_client()
+    register(client)
+    module.app.config["VERIFIER"].followed.add("dana@proton.me")
+    assert "verify your email" in client.get("/").get_data(as_text=True)
+    client.get("/auth/verify/confirm?token=guessed")
+    assert "verify your email" in client.get("/").get_data(as_text=True)
+
+
+def test_squatter_cannot_get_verified_by_the_owner_clicking():
+    """
+    Someone registers a student's address; the student gets Google's genuine
+    mail and follows it. That must not verify the squatter's account.
+    """
+    module, _fake_compute = load_app(ADMIN)
+    set_mapping(module, {"dana@proton.me": "raz"})
+    squatter = module.app.test_client()
+    register(squatter, password="squatter1")
+    owner = module.app.test_client()
+    response = follow_link(module, owner)
+    assert response.status_code == 302
+    assert "error=Sign+in+with+your+email+and+password" in response.location
+    # the owner does not know the squatter's password, so cannot finish it
+    assert sign_in(owner, password="realowner").status_code == 401
+    body = squatter.get("/").get_data(as_text=True)
+    assert "verify your email" in body
+    assert "machine-raz" not in body
+    assert module.datastore_client.entities[("user", "email:dana@proton.me")]["verified"] is False
+
+
+def test_link_followed_in_another_browser_counts_after_signing_in_there():
+    module, _fake_compute = load_app()
+    set_mapping(module, {"dana@proton.me": "raz"})
+    register(module.app.test_client())
+    phone = module.app.test_client()
+    follow_link(module, phone)
+    assert sign_in(phone).status_code == 200
+    body = phone.get("/").get_data(as_text=True)
+    assert "Your email is verified." in body
+    assert "machine-raz" in body
+
+
+def test_replacing_an_unverified_account_signs_out_its_sessions():
+    """
+    A student registers; before they follow the link someone registers the
+    address again. The student's session must not now belong to the
+    squatter's account, or following the link would verify it.
+    """
+    module, _fake_compute = load_app()
+    student = module.app.test_client()
+    register(student, password="realowner")
+    assert "Signed in as dana@proton.me" in student.get("/").get_data(as_text=True)
+    squatter = module.app.test_client()
+    register(squatter, password="squatter1")
+    assert follow_link(module, student).status_code == 302
+    assert "Signed in as" not in student.get("/").get_data(as_text=True)
+    assert module.datastore_client.entities[("user", "email:dana@proton.me")]["verified"] is False
+    # registering again takes the address back, and the mail already in hand still serves
+    register(student, password="realowner")
+    assert "Your email is verified." in student.get("/").get_data(as_text=True)
+    assert "verify your email" not in squatter.get("/").get_data(as_text=True)
+    assert sign_in(squatter, password="squatter1").status_code == 401
 
 
 def test_version_reports_deploy_stamp_and_revision():
@@ -777,3 +864,38 @@ def test_top_bar_shows_how_the_user_signed_in(subject, icon, name):
     assert f'title="Signed in with {name}"' in body
     assert f'src="/static/{icon}.svg" alt="{name}"' in body
     assert 'src="/static/signout.svg"' in body
+
+
+# ─── thread safety and response headers ─────────────────────────────────────
+
+def test_each_thread_gets_its_own_api_connection():
+    module, fake_compute = load_app()
+    seen = []
+    thread = threading.Thread(target=lambda: seen.append(module.api_http()))
+    thread.start()
+    thread.join()
+    assert module.api_http() is module.api_http()
+    assert seen[0] is not module.api_http()
+    signed_in_client(module, "keren@gmail.com").get("/")
+    call = fake_compute.instances.return_value.aggregatedList.return_value.execute.call_args
+    assert call.kwargs["http"] is module.api_http()
+
+
+def test_pages_cannot_be_framed():
+    module, _fake_compute = load_app(ADMIN)
+    for response in (module.app.test_client().get("/"), signed_in_client(module).get("/")):
+        csp = response.headers["Content-Security-Policy"]
+        assert "frame-ancestors 'none'" in csp
+        assert "script-src 'self' https://accounts.google.com/gsi/client" in csp
+        assert response.headers["X-Frame-Options"] == "DENY"
+        assert response.headers["X-Content-Type-Options"] == "nosniff"
+        assert "Strict-Transport-Security" not in response.headers
+    # the SVGs keep their inline styles: no CSP on what is not a page
+    assert "Content-Security-Policy" not in module.app.test_client().get("/static/scene.svg").headers
+
+
+def test_hsts_on_cloud_run():
+    module, _fake_compute = load_app()
+    with unittest.mock.patch.dict(os.environ, {"K_SERVICE": "machines"}):
+        response = module.app.test_client().get("/app/health")
+    assert response.headers["Strict-Transport-Security"].startswith("max-age=")

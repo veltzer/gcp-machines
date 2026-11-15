@@ -17,12 +17,22 @@ Google and GitHub (both only hand over verified addresses), and for password
 accounts false until the link mailed to the address is followed (see
 verification.py).
 
-Fields: email, name, picture, verified, password_hash and verification_sent
-(password accounts only), owner (the machine owner label an admin assigned
-to this account, absent until then), created, last_login.
+Fields: email, name, picture, verified, owner (the machine owner label an
+admin assigned to this account, absent until then), created, last_login,
+and for password accounts only:
+
+    password_hash        werkzeug hash of the password
+    account_id           random, new each time the account is (re)created;
+                         a session counts only while it carries the same
+                         one, so replacing an unverified account signs out
+                         whoever was signed in to the old one
+    verification_sent    when the last verification mail went out
+    verification_token   the secret in that mail's link; see
+                         auth.check_verification
 """
 
 import datetime
+import secrets
 
 from google.cloud import datastore
 
@@ -30,7 +40,7 @@ KIND = "user"
 
 # never indexed: nobody queries by them, and an index on the hash would be a
 # second copy of it
-UNINDEXED = ("password_hash", "picture")
+UNINDEXED = ("password_hash", "picture", "account_id", "verification_token")
 
 
 def now():
@@ -69,7 +79,11 @@ def create_password_account(client, email, password_hash):
     An unverified one is replaced: it proves nothing about who owns the
     address, so it must not keep the address from its owner, who may also
     simply have forgotten the password before verifying. Nothing of it
-    carries over, an admin's assignment included.
+    carries over, an admin's assignment included, except the pace of the
+    mails and the secret of the last one. Keeping that secret is safe: it is
+    only in the mailbox, and it verifies only a session that also knows the
+    new password (see auth.check_verification). It lets the address's owner
+    use the mail they already have.
     """
     subject = f"email:{email}"
     with client.transaction():
@@ -83,12 +97,14 @@ def create_password_account(client, email, password_hash):
             "picture": "",
             "verified": False,
             "password_hash": password_hash,
+            "account_id": secrets.token_hex(16),
             "created": now(),
             "last_login": now(),
         })
-        # replacing the account must not reset the pace of the mails to the address
-        if existing is not None and "verification_sent" in existing:
-            entity["verification_sent"] = existing["verification_sent"]
+        if existing is not None:
+            for field in ("verification_sent", "verification_token"):
+                if field in existing:
+                    entity[field] = existing[field]
         client.put(entity)
     return entity
 
@@ -99,9 +115,10 @@ def touch(client, entity):
     client.put(entity)
 
 
-def mark_verification_sent(client, entity):
-    """ record when the verification mail went out, which paces resending """
+def mark_verification_sent(client, entity, token):
+    """ record when the verification mail went out (which paces resending) and its link's secret """
     entity["verification_sent"] = now()
+    entity["verification_token"] = token
     client.put(entity)
 
 
@@ -109,6 +126,7 @@ def mark_verified(client, entity):
     """ the account's email was shown to be its owner's """
     entity["verified"] = True
     entity.pop("verification_sent", None)
+    entity.pop("verification_token", None)
     client.put(entity)
 
 

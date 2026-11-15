@@ -7,6 +7,9 @@ dependencies = [
     "google-api-python-client",
     "google-auth",
     "google-cloud-datastore",
+    # per-thread connections for the API clients (src/main.py api_http)
+    "google-auth-httplib2",
+    "httplib2",
     "gunicorn",
     "markupsafe",
     "pyclassifiers",
