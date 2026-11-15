@@ -117,24 +117,41 @@ organization:
 
 ## Machines and their keys
 
-`python scripts/machines.py create` makes one machine per line of
-`data.gi/students.txt` (`<owner> <email>`), labelled with the owner. Each
-machine gets its own ed25519 key pair: the private key goes straight into
-Secret Manager as `machine-key-<instance>` (never to disk), the public key
-onto the machine for the `ubuntu` user, next to the admin key
-`~/.ssh/id_machines.pub` that `connect` and `tunnel` use. A student
-downloads their machine's key from its card (`GET /key`, allowed only to
-the machine's student and admins) and connects with the `ssh` command
-shown there. `python scripts/machines.py delete` removes the key secrets
-together with the machines.
+Machines are made on demand: a student whose account maps to an owner (by
+the roster or an admin's assignment) and who has no machine gets a Create
+my machine button. It makes `machine-<owner>` in the first of
+`provision.ALLOWED_ZONES` whose region has CPU quota left, labelled with
+the owner. One name per owner is what keeps it to one machine per student.
+From its card the student can Start, Stop and Delete it (Delete removes the
+disk and the key for good; a new machine comes with a new key). Admins can
+do the same to every machine. Whatever is running turns itself off 4 hours
+after it starts (`provision.MAX_RUN_SECONDS`); the disk is kept.
+
+Each machine gets its own ed25519 key pair: the private key goes straight
+into Secret Manager as `machine-key-<instance>` (never to disk), the public
+key onto the machine for the `ubuntu` user. A student downloads their
+machine's key from its card (`GET /key`, allowed only to the machine's
+student and admins) and connects with the `ssh` command shown there. The
+app's service account needs `roles/secretmanager.admin` for this
+(`python scripts/service_account.py grant`).
+
+So that `connect` and `tunnel` reach machines the students make, put the
+admin key `~/.ssh/id_machines.pub` into the project-wide ssh keys once,
+which every machine accepts on top of its own:
+
+```bash
+python scripts/machines.py admin-key
+```
 
 To get a course ready:
 
 ```bash
-python scripts/machines.py create   # machines and keys
-python scripts/machines.py stop     # stopped until the students start them
 python scripts/iap.py push-roster   # email -> owner roster to Datastore
 ```
+
+`python scripts/machines.py create` still makes, in one go, a machine for
+every roster owner who has none (re-runnable); `delete` removes all
+machines and their key secrets.
 
 A Google or GitHub sign-in with a roster email sees its machine at once, a
 password account once its email is verified. Until then the Students table

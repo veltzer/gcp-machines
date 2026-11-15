@@ -6,7 +6,6 @@ and delete virtual machines, and to reach them over ssh (connect, tunnel).
 """
 
 import argparse
-import base64
 import json
 import os
 import socket
@@ -14,10 +13,11 @@ import sys
 import time
 
 import google.auth
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from googleapiclient import discovery
-from googleapiclient.errors import HttpError
+
+# The machine spec is shared with the web app, which lives in src/.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from src import provision
 
 # Always read the student list from data.gi/students.txt at the repo root.
 # Each line is "<owner-name> [email]"; this script only uses the owner name,
@@ -60,7 +60,7 @@ SSH_PRIVATE_KEY_FILE = os.path.expanduser("~/.ssh/id_machines")
 
 # The user the ssh-keys metadata is created for, and so the one connect and
 # tunnel log in as by default.
-DEFAULT_USER = "ubuntu"
+DEFAULT_USER = provision.DEFAULT_USER
 
 # The port test-port checks when none is given: the ssh port every machine is
 # expected to answer on, and the one connect and tunnel rely on.
@@ -69,31 +69,12 @@ DEFAULT_PORT = 22
 # How long test-port waits for a connection before calling the port closed.
 DEFAULT_PORT_TIMEOUT = 5.0
 
-# The only zones in which we are allowed to create machines.
-ALLOWED_ZONES = ("us-central1-a", "us-east1-c")
-
-# The machine type used for every instance, and how many vCPUs it consumes.
-# Used both when creating machines and when computing per-zone limits.
-# N2 (Intel) rather than E2 because E2 does not support nested
-# virtualization, which the machines need to run KVM guests (qemu, libvirt).
-MACHINE_TYPE = "n2-standard-2"
-MACHINE_VCPUS = 2
-
-# The regional quota metrics a machine of MACHINE_TYPE counts against: the
-# general CPUS quota and the per-series N2_CPUS quota. The tighter one wins.
-MACHINE_QUOTA_METRICS = ("CPUS", "N2_CPUS")
-
-# Every machine turns itself off this long after it starts. Compute Engine
-# enforces it (scheduling.maxRunDuration): the countdown starts whenever the
-# machine enters RUNNING (a start or a resume, from the web app or anywhere
-# else) and is cleared when it stops or suspends. When it runs out the
-# machine is stopped, not deleted: the boot disk is kept, memory is lost.
-# Set at create time; `set-limit` applies it to machines that predate it.
-MAX_RUN_SECONDS = 4 * 60 * 60
-RUN_LIMIT = {
-    "maxRunDuration": {"seconds": str(MAX_RUN_SECONDS)},
-    "instanceTerminationAction": "STOP",
-}
+ALLOWED_ZONES = provision.ALLOWED_ZONES
+MACHINE_TYPE = provision.MACHINE_TYPE
+MACHINE_VCPUS = provision.MACHINE_VCPUS
+MACHINE_QUOTA_METRICS = provision.MACHINE_QUOTA_METRICS
+MAX_RUN_SECONDS = provision.MAX_RUN_SECONDS
+RUN_LIMIT = provision.RUN_LIMIT
 
 def require_default_account(credentials):
     """
@@ -223,106 +204,16 @@ def wait_for_operation_quiet(project_id, compute, zone, op_name):
             return
         time.sleep(1)
 
-# The boot image: the Ubuntu 22.04 LTS family, so every machine starts from
-# the latest patched 22.04 image (a pinned dated image gets deprecated and
-# eventually deleted by Google).
-BOOT_IMAGE = "projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts"
-
-# Every machine gets its own ssh key pair at creation. The private key lives
-# only in Secret Manager, in the secret KEY_SECRET_PREFIX + <instance name>,
-# from where the web app hands it to the machine's student (keep in sync
-# with KEY_SECRET_PREFIX in src/main.py). It is never written to disk here.
-KEY_SECRET_PREFIX = "machine-key-"
-
 def get_secrets_client():
     """Initializes and returns a Secret Manager API client."""
     credentials, _ = google.auth.default()
     return discovery.build("secretmanager", "v1", credentials=credentials)
 
-def generate_key_pair(comment):
-    """
-    A new ed25519 ssh key pair: (private key in OpenSSH format, public key
-    line ending in comment).
-    """
-    key = Ed25519PrivateKey.generate()
-    private = key.private_bytes(
-        serialization.Encoding.PEM,
-        serialization.PrivateFormat.OpenSSH,
-        serialization.NoEncryption(),
-    ).decode()
-    public = key.public_key().public_bytes(
-        serialization.Encoding.OpenSSH,
-        serialization.PublicFormat.OpenSSH,
-    ).decode()
-    return private, f"{public} {comment}"
-
-def store_machine_key(project_id, secrets, instance_name, owner, private_key):
-    """
-    Stores a machine's private key as the newest version of its secret,
-    creating the secret on first use.
-    """
-    secret_id = KEY_SECRET_PREFIX + instance_name
-    parent = f"projects/{project_id}"
-    try:
-        secrets.projects().secrets().create(
-            parent=parent,
-            secretId=secret_id,
-            body={
-                "replication": {"automatic": {}},
-                "labels": {"owner": owner, "instance": instance_name},
-            },
-        ).execute()
-    except HttpError as error:
-        if error.resp.status != 409:  # 409: it exists already, add a version
-            raise
-    secrets.projects().secrets().addVersion(
-        parent=f"{parent}/secrets/{secret_id}",
-        body={"payload": {"data": base64.b64encode(private_key.encode()).decode()}},
-    ).execute()
-
 def delete_machine_keys(project_id, secrets, instance_names):
     """ Deletes the key secrets of the given instances, where they exist. """
     for name in instance_names:
-        secret = f"projects/{project_id}/secrets/{KEY_SECRET_PREFIX}{name}"
-        try:
-            secrets.projects().secrets().delete(name=secret).execute()
+        if provision.delete_key(secrets, project_id, name):
             print(f"Deleted key of {name}.")
-        except HttpError as error:
-            if error.resp.status != 404:
-                raise
-
-def create_machine(project_id, compute, number, zone, owner, ssh_keys):
-    """
-    Fires off creation of a single virtual machine instance and returns the
-    (zone, operation-name) pair for the insert operation. Does not wait.
-    ssh_keys are the public key lines the ubuntu user accepts.
-    """
-    print(f"Creating instance-{number} in {zone} for {owner}...")
-    config = {
-        "name": f"instance-{number}",
-        "machineType": f"zones/{zone}/machineTypes/{MACHINE_TYPE}",
-        "networkInterfaces": [{
-            "network": "global/networks/default",
-            "accessConfigs": [{"name": "External NAT", "type": "ONE_TO_ONE_NAT"}],
-        }],
-        "metadata": {"items": [{
-            "key": "ssh-keys",
-            "value": "\n".join(f"{DEFAULT_USER}:{key}" for key in ssh_keys),
-        }]},
-        "disks": [{
-            "boot": True,
-            "autoDelete": True,
-            "initializeParams": {
-                "sourceImage": BOOT_IMAGE,
-                "diskSizeGb": 10,
-            },
-        }],
-        "labels": {"owner": owner},
-        "scheduling": dict(RUN_LIMIT),
-        "advancedMachineFeatures": {"enableNestedVirtualization": True},
-    }
-    operation = compute.instances().insert(project=project_id, zone=zone, body=config).execute()
-    return (zone, operation["name"])
 
 def stop_all_machines(project_id, compute, wait_mode):
     """
@@ -535,15 +426,18 @@ def show_input_sample():
 
 def create_command(args, project_id, compute):
     """
-    Creates one VM per owner in the student list, allocating owners to zones up
-    to each zone's machine limit, and waits according to args.wait_mode.
+    Creates a VM for every owner in the student list who has none yet,
+    allocating owners to zones up to each zone's machine limit, and waits
+    according to args.wait_mode. Re-runnable: a machine is named after its
+    owner (provision.instance_name), so adding a student and running create
+    again creates just that one.
     """
     with open(SSH_KEY_FILE, "r", encoding="utf-8") as f:
         ssh_key = f.read().strip()
     owners = [owner for owner, _email in read_students()]
 
-    # Check owner uniqueness BEFORE creating anything, so we fail fast
-    # instead of partway through creating machines.
+    # Check owners BEFORE creating anything, so we fail fast instead of
+    # partway through creating machines.
     seen = set()
     duplicates = set()
     for owner in owners:
@@ -555,6 +449,22 @@ def create_command(args, project_id, compute):
             f"Duplicate owner(s) in {STUDENTS_FILE}: "
             f"{', '.join(sorted(duplicates))}"
         )
+    invalid = [owner for owner in owners if provision.instance_name(owner) is None]
+    if invalid:
+        raise ValueError(f"Owner(s) that make no valid machine name: {', '.join(invalid)}")
+
+    # Owners who have a machine already (made here or by them in the web
+    # app) are skipped; their machines still count against each zone's limit.
+    existing = get_all_instances(project_id, compute)
+    have = {instance.get("labels", {}).get("owner") for instance in existing}
+    used = {}
+    for instance in existing:
+        zone = instance["zone"].split("/")[-1]
+        used[zone] = used.get(zone, 0) + 1
+    for owner in owners:
+        if owner in have:
+            print(f"Skipping {owner} (has a machine)")
+    owners = [owner for owner in owners if owner not in have]
 
     # Allocate owners to zones by walking ALLOWED_ZONES in order, filling
     # each zone up to its per-zone machine limit before moving to the next.
@@ -568,43 +478,62 @@ def create_command(args, project_id, compute):
         limit = zone_machine_limit(project_id, compute, zone)
         if limit is None:
             continue
-        take, remaining = remaining[:limit], remaining[limit:]
+        room = max(0, limit - used.get(zone, 0))
+        take, remaining = remaining[:room], remaining[room:]
         assignments.extend((owner, zone) for owner in take)
     if remaining:
-        capacity = sum(
-            limit
-            for zone in ALLOWED_ZONES
-            if (limit := zone_machine_limit(project_id, compute, zone)) is not None
-        )
         raise ValueError(
-            f"Not enough capacity in allowed zones for {len(owners)} machine(s): "
-            f"total capacity is {capacity} across {', '.join(ALLOWED_ZONES)}. "
+            f"Not enough capacity in {', '.join(ALLOWED_ZONES)} for {len(owners)} more machine(s). "
             f"Owner(s) left unassigned: {', '.join(remaining)}"
         )
 
-    # The instance number is derived from the line position in the file.
-    # Each machine gets its own key pair, stored before the machine is
-    # created so there is never a machine whose key is lost. Its ubuntu user
-    # also accepts the admin key, so connect and tunnel keep working.
-    # Fire each insert; in WAIT_EACH mode block on it before the next, in
-    # WAIT_ALL mode collect the operations and wait for all at the end, and
-    # in WAIT_NONE mode never wait.
+    # Each machine gets its own key pair, stored in Secret Manager for the
+    # web app to hand out. Its ubuntu user also accepts the admin key, so
+    # connect and tunnel keep working.
     secrets = get_secrets_client()
     operations = []
-    for number, (owner, zone) in enumerate(assignments):
-        instance_name = f"instance-{number}"
-        private_key, public_key = generate_key_pair(f"{owner}@{instance_name}")
-        store_machine_key(project_id, secrets, instance_name, owner, private_key)
-        zone_name, op_name = create_machine(
-            project_id, compute, number, zone, owner, [ssh_key, public_key]
-        )
+    for owner, zone in assignments:
+        name = provision.instance_name(owner)
+        print(f"Creating {name} in {zone} for {owner}...")
+        _name, op_name = provision.create(compute, secrets, project_id, owner, zone, extra_keys=[ssh_key])
         if args.wait_mode == WAIT_EACH:
-            wait_for_operation(project_id, compute, zone_name, op_name, "come up")
-            print(f"Instance instance-{number} created successfully.")
-        else:
-            operations.append((zone_name, op_name))
+            wait_for_operation(project_id, compute, zone, op_name, "come up")
+            print(f"Instance {name} created successfully.")
+        elif args.wait_mode == WAIT_ALL:
+            operations.append((zone, op_name))
     if args.wait_mode == WAIT_ALL:
         wait_for_operations(project_id, compute, operations, "come up")
+
+def admin_key_command(_args, project_id, compute):
+    """
+    Adds the admin key (SSH_KEY_FILE) to the project-wide ssh-keys metadata,
+    which every machine accepts on top of its own. Machines a student
+    creates in the web app carry only their own key; this is what lets
+    connect and tunnel reach them too. Other project-wide keys are kept.
+    """
+    with open(SSH_KEY_FILE, "r", encoding="utf-8") as f:
+        line = f"{DEFAULT_USER}:{f.read().strip()}"
+    metadata = compute.projects().get(project=project_id).execute().get("commonInstanceMetadata", {})
+    items = metadata.get("items", [])
+    entry = next((item for item in items if item["key"] == "ssh-keys"), None)
+    if entry is None:
+        entry = {"key": "ssh-keys", "value": ""}
+        items.append(entry)
+    lines = [existing for existing in entry["value"].splitlines() if existing.strip()]
+    if line in lines:
+        print(f"The project already accepts {SSH_KEY_FILE}.")
+        return
+    entry["value"] = "\n".join([*lines, line])
+    operation = compute.projects().setCommonInstanceMetadata(
+        project=project_id,
+        body={"fingerprint": metadata.get("fingerprint"), "items": items},
+    ).execute()
+    while operation["status"] != "DONE":
+        time.sleep(1)
+        operation = compute.globalOperations().get(project=project_id, operation=operation["name"]).execute()
+    if "error" in operation:
+        raise ValueError(operation["error"])
+    print(f"Every machine in the project now accepts {SSH_KEY_FILE} for {DEFAULT_USER}.")
 
 # The connect and tunnel commands never write an IP down: a machine is
 # identified by the "owner" label it was created with, and its external IP is
@@ -848,9 +777,16 @@ def main():
     sample_parser.set_defaults(func=lambda args, proj, comp: show_input_sample())
 
     # Create command
-    create_parser = subparsers.add_parser("create", help="Create VM instances from a file.")
+    create_parser = subparsers.add_parser("create", help="Create a VM for every student in the file who has none.")
     add_wait_flag(create_parser)
     create_parser.set_defaults(func=create_command)
+
+    # Admin-key command
+    admin_key_parser = subparsers.add_parser(
+        "admin-key",
+        help="Let every machine, also those students create, accept the admin ssh key.",
+    )
+    admin_key_parser.set_defaults(func=admin_key_command)
 
     # Stop-all command
     stop_parser = subparsers.add_parser("stop", help="Stop all running VM instances.")

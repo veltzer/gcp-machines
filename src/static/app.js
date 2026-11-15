@@ -223,9 +223,21 @@ function localizeTimes() {
 	}
 }
 
+// Forms that destroy something (Delete) ask first; the question is in data-confirm.
+function confirmForms() {
+	for (const form of document.querySelectorAll("form[data-confirm]")) {
+		form.onsubmit = (event) => {
+			if (!window.confirm(form.dataset.confirm)) {
+				event.preventDefault();
+			}
+		};
+	}
+}
+
 function machinesPage() {
 	fillAssignments();
 	localizeTimes();
+	confirmForms();
 	for (const button of document.querySelectorAll("button[data-copy]")) {
 		button.onclick = async () => {
 			await navigator.clipboard.writeText(button.dataset.copy);

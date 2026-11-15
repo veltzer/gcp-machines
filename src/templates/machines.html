@@ -54,17 +54,26 @@
 				</div>
 			{% endif %}
 			<h1>{% if admin %}All machines{% else %}Your machine{% endif %}</h1>
-			{% if machines and not admin %}
+			{% if (machines or can_create) and not admin %}
 				<p class="hint-left">
-					Start your machine, download its key once, then connect with the
-					ssh command shown on the card (on Linux and macOS first run
-					<code>chmod 600</code> on the key file). Suspend it when you are done.
-					A machine turns itself off 4 hours after it starts: your files are
-					kept, but running programs are not, so save your work and start it
-					again if you need more time.
+					Create your machine when you need it, download its key, then connect
+					with the ssh command shown on the card (on Linux and macOS first run
+					<code>chmod 600</code> on the key file). Stop it when you are done
+					for the day: your files are kept. A machine turns itself off {{hours}}
+					hours after it starts, so save your work and start it again if you
+					need more time. Delete it when you no longer need it: that removes
+					it and everything on it for good, and a machine you create later
+					comes with a new key.
 				</p>
 			{% endif %}
-			{% if machines|length == 0 and not unverified %}
+			{% if can_create %}
+				<div class="create">
+					<p>You have no machine{% if admin %} of your own ({{owner}}){% endif %}.</p>
+					<form method="post" action="/create">
+						<button type="submit">Create my machine</button>
+					</form>
+				</div>
+			{% elif machines|length == 0 and not unverified %}
 				<p class="empty">
 					No machine is assigned to you. Contact your instructor.
 				</p>
@@ -117,12 +126,23 @@
 								<input type="hidden" name="zone" value="{{machine.zone}}">
 								<button type="submit" class="quiet" title="The private key that logs you in to this machine">Download key</button>
 							</form>
-							<form method="post" action="/process">
+							{% if machine.status == "RUNNING" %}
+								<form method="post" action="/stop">
+									<input type="hidden" name="name" value="{{machine.name}}">
+									<input type="hidden" name="zone" value="{{machine.zone}}">
+									<button type="submit" title="Turn the machine off; its files are kept">Stop</button>
+								</form>
+							{% else %}
+								<form method="post" action="/start">
+									<input type="hidden" name="name" value="{{machine.name}}">
+									<input type="hidden" name="zone" value="{{machine.zone}}">
+									<button type="submit">Start</button>
+								</form>
+							{% endif %}
+							<form method="post" action="/delete" data-confirm="Delete {{machine.name}} and everything on it? This cannot be undone.">
 								<input type="hidden" name="name" value="{{machine.name}}">
 								<input type="hidden" name="zone" value="{{machine.zone}}">
-								<button type="submit">
-									{% if machine.status == "RUNNING" %}Suspend{% else %}Start{% endif %}
-								</button>
+								<button type="submit" class="quiet danger" title="Remove the machine and its files for good">Delete</button>
 							</form>
 						</div>
 					</li>

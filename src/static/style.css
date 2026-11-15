@@ -126,6 +126,14 @@ button.quiet:hover {
 	border-color: #9ca3af;
 }
 
+button.quiet.danger {
+	color: var(--danger);
+}
+
+button.quiet.danger:hover {
+	border-color: var(--danger);
+}
+
 button:disabled,
 button:disabled:hover {
 	cursor: not-allowed;
@@ -142,6 +150,24 @@ button:disabled:hover {
 .content h1 {
 	margin: 0 0 1rem;
 	font-size: 1.5rem;
+}
+
+.create {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.75rem 1.25rem;
+	align-items: center;
+	justify-content: space-between;
+	margin: 0 0 1rem;
+	padding: 1rem 1.5rem;
+	background: #fff;
+	border: 1px dashed var(--line);
+	border-radius: 16px;
+}
+
+.create p,
+.create form {
+	margin: 0;
 }
 
 .empty {

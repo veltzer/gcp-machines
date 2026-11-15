@@ -57,14 +57,6 @@ still-open items are carried over under "Repo hygiene").
   where students suspended, neither command does what its name says. Resume
   `SUSPENDED` in `continue`; decide whether `stop` should stop suspended
   machines (it frees the memory snapshot storage).
-- **`machines.py create` is not re-runnable.** Instance names come from the
-  line position in `students.txt` (`machines.py:610`), so adding a student
-  in the middle shifts every number after it, and re-running create for
-  one new student collides (409) with the existing machines. Name machines
-  by owner (`machine-<owner>`) or skip owners that already have a machine.
-  Also, the key secret is stored before the insert, so a failed insert
-  leaves an orphan secret, and with `--no-wait`/`--wait-all` a failed
-  operation is only noticed after every other insert went out.
 - **`machines.py list` crashes on a machine without an access config**
   (`machines.py:136`, `instance["networkInterfaces"][0]["accessConfigs"][0]`).
   Use the existing `instance_ip()` helper.
@@ -106,9 +98,8 @@ still-open items are carried over under "Repo hygiene").
   print the commands with a one-line description each and nothing else.
 - **Duplicated helpers across scripts:** `read_students` (machines.py,
   iap.py), `require_default_account` (machines.py, iap.py, firewall.py,
-  service_account.py), `get_compute_client`, and `KEY_SECRET_PREFIX`
-  (machines.py and `src/main.py`, kept "in sync" by comment). Move them to
-  one shared module (e.g. `src/common.py` or `scripts/common.py`).
+  service_account.py) and `get_compute_client`. Move them to one shared
+  module (the machine spec already lives in `src/provision.py`).
 - **`wait_for_operation` and `wait_for_operation_quiet` are the same
   loop** (`machines.py:180,208`); make the message optional and drop one.
   `list_machines_full` is a pure alias of `get_all_instances`.
@@ -136,17 +127,12 @@ still-open items are carried over under "Repo hygiene").
 
 ### Machines
 
-- **Boot image is Ubuntu 22.04** (`machines.py:224`); its standard support
+- **Boot image is Ubuntu 22.04** (`src/provision.py` `BOOT_IMAGE`); its standard support
   ends April 2027, mid-way through a course. Move to `ubuntu-2404-lts`
   (check the nested-virtualization setup still works).
-- **10 GB boot disk** (`machines.py:330`) is tight for machines meant to run
+- **10 GB boot disk** (`src/provision.py` `DISK_GB`) is tight for machines meant to run
   KVM guests (one cloud image plus a qcow2 overlay already fills much of
-  it). Consider 20-30 GB, or make it a constant next to `MACHINE_TYPE`.
-- **The 4-hour limit is stated in three places** (`machines.py:79`,
-  `src/main.py:403` message, `machines.html` hint). The app could read
-  `maxRunDuration` off the instance (it already does for the countdown) and
-  render the hours from it.
-
+  it). Consider 20-30 GB.
 ### Docs and config
 
 - **`doc/TODO.txt`**: "move to the non discovery api" (google-cloud-compute

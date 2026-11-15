@@ -36,8 +36,10 @@ ROLES = [
     # policy, which is what the `roles` command and `machines.py` need.
     "roles/iam.securityReviewer",
     # reads the session cookie key (and OAuth client secrets) that
-    # gcp_secrets in .gcp.conf puts in Secret Manager
-    "roles/secretmanager.secretAccessor",
+    # gcp_secrets in .gcp.conf puts in Secret Manager, and creates and
+    # deletes the ssh key secret of each machine a student creates or
+    # deletes in the app (src/provision.py)
+    "roles/secretmanager.admin",
     # creates, checks and deletes the Identity Platform users that carry
     # the verification mail of password accounts (src/verification.py)
     "roles/identitytoolkit.admin",

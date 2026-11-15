@@ -276,6 +276,7 @@ name = "gcp-machines"
 version = "0.0.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "flask" },
     { name = "google-api-python-client" },
     { name = "google-auth" },
@@ -290,7 +291,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "cryptography" },
     { name = "pyrefly" },
     { name = "pytest" },
     { name = "ruff" },
@@ -298,6 +298,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography" },
     { name = "flask" },
     { name = "google-api-python-client" },
     { name = "google-auth" },
@@ -312,7 +313,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "cryptography" },
     { name = "pyrefly" },
     { name = "pytest" },
     { name = "ruff" },

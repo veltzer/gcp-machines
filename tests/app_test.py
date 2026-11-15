@@ -237,67 +237,79 @@ def test_root_lists_machines_and_survives_missing_fields():
     assert body.count('disabled>Copy IP</button>') == 2
 
 
-def test_process_rejects_get():
+def test_actions_reject_get():
     module, _fake_compute = load_app(ADMIN)
     client = signed_in_client(module)
-    response = client.get("/process?name=machine-keren&zone=us-central1-a&status=RUNNING")
-    assert response.status_code == 405
+    for path in ("/start", "/stop", "/delete", "/create"):
+        assert client.get(f"{path}?name=machine-keren&zone=us-central1-a").status_code == 405
 
 
-def test_process_requires_sign_in():
+def test_actions_require_sign_in():
     module, fake_compute = load_app(ADMIN)
     instances = set_instance_status(fake_compute, "RUNNING", owner="keren")
-    response = module.app.test_client().post("/process", data={"name": "machine-keren", "zone": "us-central1-a"})
-    assert response.status_code == 302
-    instances.suspend.assert_not_called()
+    client = module.app.test_client()
+    for path in ("/start", "/stop", "/delete", "/create"):
+        assert client.post(path, data={"name": "machine-keren", "zone": "us-central1-a"}).status_code == 302
+    instances.stop.assert_not_called()
+    instances.delete.assert_not_called()
+    instances.insert.assert_not_called()
 
 
-def test_process_resumes_suspended_machine():
+def test_start_resumes_suspended_machine():
     module, fake_compute = load_app(ADMIN)
     instances = set_instance_status(fake_compute, "SUSPENDED")
     client = signed_in_client(module)
-    response = client.post("/process", data={"name": "machine-bare", "zone": "us-central1-a"})
-    assert response.status_code == 200
+    response = client.post("/start", data={"name": "machine-bare", "zone": "us-central1-a"})
+    assert response.status_code == 302
     instances.resume.assert_called_once_with(project="test-project", zone="us-central1-a", instance="machine-bare")
-    instances.suspend.assert_not_called()
     instances.start.assert_not_called()
 
 
-def test_process_suspends_running_machine():
+def test_stop_stops_running_machine():
     module, fake_compute = load_app(ADMIN)
     instances = set_instance_status(fake_compute, "RUNNING")
     client = signed_in_client(module)
-    response = client.post("/process", data={"name": "machine-keren", "zone": "us-central1-a"})
-    assert response.status_code == 200
-    instances.suspend.assert_called_once_with(project="test-project", zone="us-central1-a", instance="machine-keren")
-    instances.resume.assert_not_called()
+    response = client.post("/stop", data={"name": "machine-keren", "zone": "us-central1-a"}, follow_redirects=True)
+    assert "Stopping machine machine-keren" in response.get_data(as_text=True)
+    instances.stop.assert_called_once_with(project="test-project", zone="us-central1-a", instance="machine-keren")
+    instances.suspend.assert_not_called()
 
 
-def test_process_starts_terminated_machine():
+def test_start_starts_terminated_machine():
     module, fake_compute = load_app(ADMIN)
     instances = set_instance_status(fake_compute, "TERMINATED")
     client = signed_in_client(module)
-    response = client.post("/process", data={"name": "machine-keren", "zone": "us-central1-a"})
-    assert response.status_code == 200
+    response = client.post("/start", data={"name": "machine-keren", "zone": "us-central1-a"})
+    assert response.status_code == 302
     instances.start.assert_called_once_with(project="test-project", zone="us-central1-a", instance="machine-keren")
 
 
-def test_process_refuses_machine_in_transition():
+def test_actions_refuse_machine_in_transition():
     module, fake_compute = load_app(ADMIN)
     instances = set_instance_status(fake_compute, "STOPPING")
     client = signed_in_client(module)
-    response = client.post("/process", data={"name": "machine-keren", "zone": "us-central1-a"})
-    assert response.status_code == 409
+    for path in ("/start", "/stop"):
+        response = client.post(path, data={"name": "machine-keren", "zone": "us-central1-a"}, follow_redirects=True)
+        assert "is STOPPING right now" in response.get_data(as_text=True)
     instances.resume.assert_not_called()
-    instances.suspend.assert_not_called()
+    instances.stop.assert_not_called()
     instances.start.assert_not_called()
 
 
-def test_process_requires_name_and_zone():
+def test_actions_require_name_and_zone():
     module, _fake_compute = load_app(ADMIN)
     client = signed_in_client(module)
-    response = client.post("/process", data={"name": "machine-keren"})
-    assert response.status_code == 400
+    assert client.post("/stop", data={"name": "machine-keren"}).status_code == 400
+
+
+def test_cards_offer_stop_or_start_and_delete():
+    module, _fake_compute = load_app(ADMIN)
+    body = signed_in_client(module).get("/").get_data(as_text=True)
+    # one running machine (Stop), two not running (Start), every one can be deleted
+    assert body.count('action="/stop"') == 1
+    assert body.count('action="/start"') == 2
+    assert body.count('action="/delete"') == 3
+    assert "Suspend" not in body
 
 
 def test_student_sees_only_their_machine():
@@ -329,9 +341,9 @@ def test_password_account_is_not_matched_by_email():
     assert "verify your email" in body
     assert "machine-keren" not in body
     instances = set_instance_status(fake_compute, "RUNNING", owner="keren")
-    response = client.post("/process", data={"name": "machine-keren", "zone": "us-central1-a"})
+    response = client.post("/stop", data={"name": "machine-keren", "zone": "us-central1-a"})
     assert response.status_code == 403
-    instances.suspend.assert_not_called()
+    instances.stop.assert_not_called()
 
 
 def test_password_account_is_not_admin():
@@ -365,9 +377,9 @@ def test_student_can_toggle_own_machine():
     set_mapping(module, {"keren@gmail.com": "keren"})
     instances = set_instance_status(fake_compute, "RUNNING", owner="keren")
     client = signed_in_client(module, "keren@gmail.com")
-    response = client.post("/process", data={"name": "machine-keren", "zone": "us-central1-a"})
-    assert response.status_code == 200
-    instances.suspend.assert_called_once()
+    response = client.post("/stop", data={"name": "machine-keren", "zone": "us-central1-a"})
+    assert response.status_code == 302
+    instances.stop.assert_called_once()
 
 
 def test_student_cannot_toggle_others_machine():
@@ -375,9 +387,11 @@ def test_student_cannot_toggle_others_machine():
     set_mapping(module, {"keren@gmail.com": "keren"})
     instances = set_instance_status(fake_compute, "RUNNING", owner="raz")
     client = signed_in_client(module, "keren@gmail.com")
-    response = client.post("/process", data={"name": "machine-raz", "zone": "us-central1-a"})
-    assert response.status_code == 403
-    instances.suspend.assert_not_called()
+    for path in ("/stop", "/delete"):
+        response = client.post(path, data={"name": "machine-raz", "zone": "us-central1-a"})
+        assert response.status_code == 403
+    instances.stop.assert_not_called()
+    instances.delete.assert_not_called()
     instances.resume.assert_not_called()
     instances.start.assert_not_called()
 
@@ -387,7 +401,7 @@ def test_student_cannot_toggle_unowned_machine():
     set_mapping(module, {"keren@gmail.com": "keren"})
     instances = set_instance_status(fake_compute, "SUSPENDED")
     client = signed_in_client(module, "keren@gmail.com")
-    response = client.post("/process", data={"name": "machine-bare", "zone": "us-central1-a"})
+    response = client.post("/start", data={"name": "machine-bare", "zone": "us-central1-a"})
     assert response.status_code == 403
     instances.resume.assert_not_called()
 
@@ -529,7 +543,8 @@ def test_admin_assigns_a_machine_to_a_password_account():
     assert "machine-raz" in body
     assert "machine-keren" not in body
     instances = set_instance_status(fake_compute, "TERMINATED", owner="raz")
-    assert dana.post("/process", data={"name": "machine-raz", "zone": "us-central1-a"}).status_code == 200
+    response = dana.post("/start", data={"name": "machine-raz", "zone": "us-central1-a"}, follow_redirects=True)
+    assert "Starting machine machine-raz" in response.get_data(as_text=True)
     instances.start.assert_called_once()
     # clearing it takes the machine away again
     admin.post("/admin/assign", data={"subject": "email:dana@example.com", "owner": ""})
@@ -631,6 +646,147 @@ def test_cards_offer_key_and_ssh_command():
     body = signed_in_client(module, "keren@gmail.com").get("/").get_data(as_text=True)
     assert "Download key" in body
     assert "ssh -i machine-keren.key ubuntu@1.2.3.4" in body
+
+
+# ─── creating and deleting machines ──────────────────────────────────────────
+
+def set_quota(fake_compute, free_cpus):
+    """Makes every region report free_cpus CPUs of quota left."""
+    fake_compute.regions.return_value.get.return_value.execute.return_value = {
+        "quotas": [
+            {"metric": "CPUS", "limit": 24.0, "usage": 24.0 - free_cpus},
+            {"metric": "N2_CPUS", "limit": 100.0, "usage": 0.0},
+            {"metric": "DISKS_TOTAL_GB", "limit": 4096.0, "usage": 0.0},
+        ],
+    }
+
+
+def secrets_of(fake_compute):
+    return fake_compute.projects.return_value.secrets.return_value
+
+
+def test_student_without_a_machine_is_offered_one():
+    module, _fake_compute = load_app(ADMIN)
+    set_mapping(module, {"dana@gmail.com": "dana"})
+    body = signed_in_client(module, "dana@gmail.com").get("/").get_data(as_text=True)
+    assert 'action="/create"' in body
+    assert "No machine is assigned to you" not in body
+
+
+def test_student_with_a_machine_or_without_assignment_is_not_offered_one():
+    module, _fake_compute = load_app(ADMIN)
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    assert 'action="/create"' not in signed_in_client(module, "keren@gmail.com").get("/").get_data(as_text=True)
+    assert 'action="/create"' not in signed_in_client(module, "nobody@gmail.com").get("/").get_data(as_text=True)
+
+
+def test_student_creates_their_machine_with_its_own_key():
+    module, fake_compute = load_app(ADMIN)
+    set_mapping(module, {"dana@gmail.com": "dana"})
+    set_quota(fake_compute, free_cpus=8)
+    instances = fake_compute.instances.return_value
+    instances.insert.return_value.execute.return_value = {"name": "operation-1"}
+    response = signed_in_client(module, "dana@gmail.com").post("/create", follow_redirects=True)
+    assert "Creating machine machine-dana" in response.get_data(as_text=True)
+    body = instances.insert.call_args.kwargs["body"]
+    assert instances.insert.call_args.kwargs["zone"] == "us-central1-a"
+    assert body["name"] == "machine-dana"
+    assert body["labels"] == {"owner": "dana"}
+    assert body["scheduling"]["maxRunDuration"] == {"seconds": "14400"}
+    public_key = body["metadata"]["items"][0]["value"]
+    assert public_key.startswith("ubuntu:ssh-ed25519 ")
+    assert public_key.endswith(" dana@machine-dana")
+    secrets = secrets_of(fake_compute)
+    assert secrets.create.call_args.kwargs["secretId"] == "machine-key-machine-dana"
+    stored = secrets.addVersion.call_args.kwargs["body"]["payload"]["data"]
+    assert base64.b64decode(stored).startswith(b"-----BEGIN OPENSSH PRIVATE KEY-----")
+
+
+def test_create_goes_to_the_next_zone_when_the_first_is_full():
+    module, fake_compute = load_app(ADMIN)
+    set_mapping(module, {"dana@gmail.com": "dana"})
+    full = {"quotas": [{"metric": "CPUS", "limit": 8.0, "usage": 8.0}]}
+    room = {"quotas": [{"metric": "CPUS", "limit": 8.0, "usage": 2.0}]}
+    fake_compute.regions.return_value.get.return_value.execute.side_effect = [full, room]
+    instances = fake_compute.instances.return_value
+    instances.insert.return_value.execute.return_value = {"name": "operation-1"}
+    signed_in_client(module, "dana@gmail.com").post("/create")
+    assert instances.insert.call_args.kwargs["zone"] == "us-east1-c"
+
+
+def test_create_says_so_when_there_is_no_room():
+    module, fake_compute = load_app(ADMIN)
+    set_mapping(module, {"dana@gmail.com": "dana"})
+    set_quota(fake_compute, free_cpus=1)
+    response = signed_in_client(module, "dana@gmail.com").post("/create", follow_redirects=True)
+    assert "no room for another running machine" in response.get_data(as_text=True)
+    fake_compute.instances.return_value.insert.assert_not_called()
+
+
+def test_one_machine_per_student():
+    module, fake_compute = load_app(ADMIN)
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    set_quota(fake_compute, free_cpus=8)
+    response = signed_in_client(module, "keren@gmail.com").post("/create", follow_redirects=True)
+    assert "You already have a machine" in response.get_data(as_text=True)
+    fake_compute.instances.return_value.insert.assert_not_called()
+
+
+def test_a_racing_second_create_does_not_replace_the_key():
+    module, fake_compute = load_app(ADMIN)
+    set_mapping(module, {"dana@gmail.com": "dana"})
+    set_quota(fake_compute, free_cpus=8)
+    insert = fake_compute.instances.return_value.insert.return_value.execute
+    insert.side_effect = HttpError(unittest.mock.Mock(status=409, reason="Conflict"), b"")
+    response = signed_in_client(module, "dana@gmail.com").post("/create", follow_redirects=True)
+    assert "already being created" in response.get_data(as_text=True)
+    secrets_of(fake_compute).addVersion.assert_not_called()
+
+
+def test_a_machine_whose_key_cannot_be_stored_is_removed():
+    module, fake_compute = load_app(ADMIN)
+    set_mapping(module, {"dana@gmail.com": "dana"})
+    set_quota(fake_compute, free_cpus=8)
+    instances = fake_compute.instances.return_value
+    instances.insert.return_value.execute.return_value = {"name": "operation-1"}
+    secrets_of(fake_compute).addVersion.return_value.execute.side_effect = HttpError(
+        unittest.mock.Mock(status=403, reason="Forbidden"), b"")
+    response = signed_in_client(module, "dana@gmail.com").post("/create")
+    assert response.status_code == 502
+    instances.delete.assert_called_once_with(project="test-project", zone="us-central1-a", instance="machine-dana")
+
+
+def test_unassigned_account_cannot_create():
+    module, fake_compute = load_app(ADMIN)
+    response = signed_in_client(module, "nobody@gmail.com").post("/create")
+    assert response.status_code == 403
+    fake_compute.instances.return_value.insert.assert_not_called()
+
+
+def test_student_deletes_their_machine_and_its_key():
+    module, fake_compute = load_app(ADMIN)
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    instances = set_instance_status(fake_compute, "RUNNING", owner="keren")
+    client = signed_in_client(module, "keren@gmail.com")
+    response = client.post("/delete", data={"name": "machine-keren", "zone": "us-central1-a"}, follow_redirects=True)
+    assert "Deleting machine machine-keren" in response.get_data(as_text=True)
+    instances.delete.assert_called_once_with(project="test-project", zone="us-central1-a", instance="machine-keren")
+    secrets_of(fake_compute).delete.assert_called_once_with(
+        name="projects/test-project/secrets/machine-key-machine-keren")
+
+
+def test_delete_asks_first():
+    module, _fake_compute = load_app(ADMIN)
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    body = signed_in_client(module, "keren@gmail.com").get("/").get_data(as_text=True)
+    assert 'data-confirm="Delete machine-keren and everything on it?' in body
+
+
+def test_owner_labels_become_valid_machine_names():
+    module, _fake_compute = load_app()
+    assert module.provision.instance_name("dana_k") == "machine-dana-k"
+    assert module.provision.instance_name("dana-") is None
+    assert module.provision.instance_name("x" * 60) is None
 
 
 def test_roster_match_of_a_password_account_is_suggested_not_given():

@@ -12,6 +12,8 @@ dependencies = [
     "httplib2",
     "gunicorn",
     "markupsafe",
+    # ed25519 ssh key pairs for new machines (src/provision.py)
+    "cryptography",
     "pyclassifiers",
     "requests",
 ]
@@ -20,8 +22,6 @@ dependencies = [
 dev = [
     "pyrefly",
     "pytest",
-    # ed25519 ssh key pairs for new machines (scripts/machines.py)
-    "cryptography",
     "ruff",
 ]
 

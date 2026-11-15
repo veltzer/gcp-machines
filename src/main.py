@@ -8,7 +8,6 @@ import base64
 import datetime
 import json
 import os
-import re
 import secrets
 import threading
 import time
@@ -24,7 +23,7 @@ from google.cloud import datastore
 from googleapiclient import discovery
 from googleapiclient.errors import HttpError
 
-from src import auth, users, verification
+from src import auth, provision, users, verification
 
 HTML_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "html")
 
@@ -85,14 +84,9 @@ def api_http():
         _thread_local.http = http
     return http
 
-# Each machine's private ssh key lives in Secret Manager under this prefix
-# plus the instance name, put there by `scripts/machines.py create` (keep in
-# sync with KEY_SECRET_PREFIX there).
-KEY_SECRET_PREFIX = "machine-key-"
-
 # What Compute Engine allows in instance and zone names; checked before a
 # name goes into an API path.
-RESOURCE_NAME = re.compile(r"[a-z]([-a-z0-9]{0,61}[a-z0-9])?")
+RESOURCE_NAME = provision.RESOURCE_NAME
 datastore_client = datastore.Client(project=project_id)
 app.config["DATASTORE"] = datastore_client
 app.config["VERIFIER"] = verification.IdentityPlatform(credentials, project_id)
@@ -335,7 +329,7 @@ def turns_off_at(instance):
     """
     When a running machine will turn itself off (UTC, ISO 8601), or None.
     Compute Engine stops a machine maxRunDuration after it last entered
-    RUNNING (scripts/machines.py sets 4 hours); a start and a resume both
+    RUNNING (provision.MAX_RUN_SECONDS); a start and a resume both
     move lastStartTimestamp, which is what the countdown starts from.
     """
     seconds = instance.get("scheduling", {}).get("maxRunDuration", {}).get("seconds")
@@ -356,11 +350,13 @@ def root():
     machines = get_machines()
     admin = is_admin(user)
     students = pending = owners = None
+    owner = owner_of(user)
+    # the account's own machine is missing: offer to create it
+    can_create = owner is not None and not any(m["owner"] == owner for m in machines)
     if admin:
         students, pending = students_table(machines)
         owners = sorted({m["owner"] for m in machines if m["owner"] != "unknown"})
     else:
-        owner = owner_of(user)
         machines = [m for m in machines if owner is not None and m["owner"] == owner]
     return flask.render_template(
         "machines.html",
@@ -372,6 +368,9 @@ def root():
         students=students,
         pending=pending,
         owners=owners,
+        owner=owner,
+        can_create=can_create,
+        hours=provision.MAX_RUN_SECONDS // 3600,
     )
 
 
@@ -398,7 +397,7 @@ def download_key():
     # pylint: disable=no-member
     name = flask.request.args["name"]
     get_instance_for(auth.current_user(), name, flask.request.args["zone"])
-    secret = f"projects/{project_id}/secrets/{KEY_SECRET_PREFIX}{name}/versions/latest"
+    secret = f"projects/{project_id}/secrets/{provision.KEY_SECRET_PREFIX}{name}/versions/latest"
     try:
         version = secret_manager.projects().secrets().versions().access(name=secret).execute(http=api_http())
     except HttpError as error:
@@ -430,42 +429,96 @@ def assign():
     return flask.redirect(flask.url_for("root", _anchor="students"))
 
 
-@app.route("/process", methods=["POST"])
+def done(message):
+    """ back to the machines page, which shows the message on top """
+    flask.flash(message)
+    return flask.redirect(flask.url_for("root"))
+
+
+def instance_from_form():
+    """
+    The machine the posted form names, if the signed-in account may control
+    it: (name, zone, live instance).
+    """
+    name, zone = flask.request.form["name"], flask.request.form["zone"]
+    return name, zone, get_instance_for(auth.current_user(), name, zone)
+
+
+@app.route("/create", methods=["POST"])
 @auth.login_required
-def process():
-    """ toggle the state of a single machine """
-    # pylint: disable=no-member
-    name = flask.request.form["name"]
-    zone = flask.request.form["zone"]
-    # decide what to do from the live status, not from whatever the browser
-    # showed when the page was last rendered
-    instance = get_instance_for(auth.current_user(), name, zone)
-    status = instance["status"]
-    if status == "SUSPENDED":
-        compute.instances().resume(project=project_id, zone=zone, instance=name).execute(http=api_http())
-        action = "resume"
-    elif status == "TERMINATED":
-        compute.instances().start(project=project_id, zone=zone, instance=name).execute(http=api_http())
-        action = "start"
-    elif status == "RUNNING":
-        compute.instances().suspend(project=project_id, zone=zone, instance=name).execute(http=api_http())
-        action = "suspend"
-    else:
-        return (
-            (
-                f"Machine {markupsafe.escape(name)} is currently {markupsafe.escape(status)}, "
-                "which means it is already in the middle of a state change."
-                "<br/>Go back, refresh and try again in a minute."
-            ),
-            409,
-        )
-    return (
-        f"Requested {action} of machine {markupsafe.escape(name)}. "
-        "Usually it takes 1-2 minutes to really happen."
-        "<br/>If you started a machine go back and refresh until you get an IP to connect to. "
-        "It turns itself off 4 hours after it starts; your files are kept. "
-        "Use the same key as before."
+def create():
+    """
+    Create the signed-in account's machine: the one its assignment names,
+    and only when it has none yet (one machine per student).
+    """
+    user = auth.current_user()
+    owner = owner_of(user)
+    if owner is None:
+        flask.abort(403, "No machine is assigned to you. Contact your instructor.")
+    if any(m["owner"] == owner for m in get_machines()):
+        return done("You already have a machine.")
+    if provision.instance_name(owner) is None:
+        flask.abort(400, "Your assignment does not make a valid machine name. Contact your instructor.")
+    zone = provision.pick_zone(compute, project_id, http=api_http())
+    if zone is None:
+        return done("There is no room for another running machine right now. Try again later.")
+    try:
+        name, _operation = provision.create(compute, secret_manager, project_id, owner, zone, http=api_http())
+    except HttpError as error:
+        if error.resp.status == 409:  # a second click, or the old one still being deleted
+            return done("Your machine is already being created or deleted. Refresh in a minute.")
+        raise
+    return done(
+        f"Creating machine {name}. It takes a minute or two: refresh until it has an IP, "
+        "then download its key."
     )
+
+
+@app.route("/start", methods=["POST"])
+@auth.login_required
+def start():
+    """ start a stopped machine, or resume a suspended one """
+    # pylint: disable=no-member
+    name, zone, instance = instance_from_form()
+    if instance["status"] == "TERMINATED":
+        compute.instances().start(project=project_id, zone=zone, instance=name).execute(http=api_http())
+    elif instance["status"] == "SUSPENDED":
+        compute.instances().resume(project=project_id, zone=zone, instance=name).execute(http=api_http())
+    else:
+        return done(busy(name, instance))
+    return done(
+        f"Starting machine {name}. Refresh in a minute or two until it has an IP. "
+        f"It turns itself off {provision.MAX_RUN_SECONDS // 3600} hours after it starts; your files are kept."
+    )
+
+
+@app.route("/stop", methods=["POST"])
+@auth.login_required
+def stop():
+    """ stop a running machine: its disk stays, what runs in memory does not """
+    # pylint: disable=no-member
+    name, zone, instance = instance_from_form()
+    if instance["status"] != "RUNNING":
+        return done(busy(name, instance))
+    compute.instances().stop(project=project_id, zone=zone, instance=name).execute(http=api_http())
+    return done(f"Stopping machine {name}. Your files are kept; start it again when you need it.")
+
+
+@app.route("/delete", methods=["POST"])
+@auth.login_required
+def delete():
+    """ delete a machine, its disk and its key, for good """
+    # pylint: disable=no-member
+    name, zone, _instance = instance_from_form()
+    compute.instances().delete(project=project_id, zone=zone, instance=name).execute(http=api_http())
+    provision.delete_key(secret_manager, project_id, name, http=api_http())
+    return done(f"Deleting machine {name} and everything on it.")
+
+
+def busy(name, instance):
+    """ what to say when the machine is not in a state the action applies to """
+    status = "STOPPED" if instance["status"] == "TERMINATED" else instance["status"]
+    return f"Machine {name} is {status} right now. Refresh and try again in a minute."
 
 
 @app.errorhandler(HttpError)
