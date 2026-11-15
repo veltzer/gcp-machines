@@ -137,24 +137,11 @@ button {
 		min-width: 0;
 		max-width: none;
 	}
-}
 
-.account-name {
-	display: grid;
-	grid-template-columns: auto 1fr auto;
-	gap: 0.5rem;
-	align-items: center;
-	margin: 0 0 0.75rem;
-	padding-bottom: 0.75rem;
-	border-bottom: 1px solid var(--line);
-}
-
-.account-name label {
-	color: var(--muted);
-}
-
-.account-name input {
-	min-width: 0;
+	/* the top bar's Settings and Sign out keep only their icons */
+	.button-label {
+		display: none;
+	}
 }
 
 .student-name {
@@ -920,6 +907,21 @@ button:disabled {
 	gap: 0.5rem;
 	justify-content: flex-end;
 	margin-top: 1.25rem;
+}
+
+/* the settings dialog: an ordinary field, not the delete dialog's red monospace one */
+.settings input {
+	font-family: inherit;
+}
+
+.settings input:focus {
+	outline-color: var(--accent);
+	border-color: var(--accent);
+}
+
+.dialog .settings-hint {
+	margin: 0.5rem 0 0;
+	font-size: 0.85rem;
 }
 
 button.danger:not(.quiet) {

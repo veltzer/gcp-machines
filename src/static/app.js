@@ -260,6 +260,29 @@ function confirmDeletes() {
 	}
 }
 
+// The Settings button in the top bar opens the settings dialog with the
+// name field ready to edit; Cancel, Escape and the backdrop close it
+// unsaved (the field goes back to the saved name), Save posts the form.
+function setupSettings() {
+	const button = $("settings-button");
+	const dialog = $("settings-dialog");
+	if (!button || !dialog) {
+		return;
+	}
+	const name = $("settings-name");
+	button.onclick = () => {
+		name.value = name.defaultValue;
+		dialog.showModal();
+		name.select();
+	};
+	$("settings-cancel").onclick = () => dialog.close();
+	dialog.onclick = (event) => {
+		if (event.target === dialog) {
+			dialog.close();
+		}
+	};
+}
+
 // The account panel under the top bar's name: opens and closes on the
 // name, closes on a click elsewhere or Escape.
 function setupAccountMenu() {
@@ -288,6 +311,7 @@ function setupAccountMenu() {
 
 function machinesPage() {
 	setupAccountMenu();
+	setupSettings();
 	fillAssignments();
 	localizeTimes();
 	confirmDeletes();

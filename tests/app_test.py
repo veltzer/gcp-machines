@@ -1404,3 +1404,17 @@ def test_hsts_on_cloud_run():
     with unittest.mock.patch.dict(os.environ, {"K_SERVICE": "machines"}):
         response = module.app.test_client().get("/app/health")
     assert response.headers["Strict-Transport-Security"].startswith("max-age=")
+
+
+def test_the_settings_button_opens_a_dialog_to_set_the_name():
+    module, _fake_compute = load_app(ADMIN)
+    add_user(module, "github:7", "keren@gmail.com")
+    module.datastore_client.entities[("user", "keren@gmail.com")]["name"] = "Keren"
+    body = signed_in_client(module, "keren@gmail.com").get("/").get_data(as_text=True)
+    assert 'id="settings-button"' in body
+    dialog = body[body.index('<dialog id="settings-dialog"'):]
+    dialog = dialog[:dialog.index("</dialog>")]
+    assert 'action="/account/name"' in dialog
+    assert 'id="settings-name" name="name" type="text" value="Keren"' in dialog
+    # the name is set there only, not in the account panel
+    assert body.count('action="/account/name"') == 1

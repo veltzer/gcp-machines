@@ -31,11 +31,6 @@
 						{% endif %}
 					</button>
 					<div id="account-menu" class="account-menu" role="group" aria-label="Your account" hidden>
-						<form method="post" action="/account/name" class="account-name">
-							<label for="account-name">Name</label>
-							<input id="account-name" name="name" type="text" value="{{account.name}}" maxlength="60" required autocomplete="name">
-							<button type="submit" class="quiet">Save</button>
-						</form>
 						<dl class="account-details">
 							<dt>Email</dt>
 							<dd>{{account.email}}</dd>
@@ -81,10 +76,14 @@
 						</p>
 					</div>
 				</div>
+				<button id="settings-button" type="button" class="quiet with-icon" aria-haspopup="dialog" aria-controls="settings-dialog" aria-label="Settings" title="Settings">
+					<img class="method-icon" src="/static/settings.svg" alt="">
+					<span class="button-label">Settings</span>
+				</button>
 				<form method="post" action="/auth/logout">
-					<button type="submit" class="quiet with-icon">
+					<button type="submit" class="quiet with-icon" aria-label="Sign out" title="Sign out">
 						<img class="method-icon" src="/static/signout.svg" alt="">
-						Sign out
+						<span class="button-label">Sign out</span>
 					</button>
 				</form>
 			</div>
@@ -276,6 +275,22 @@
 					{% endfor %}
 				</div>
 			{% endif %}
+			{# the Settings button opens this; Save posts the form, Cancel and Escape leave everything as it was #}
+			<dialog id="settings-dialog" class="dialog settings" aria-labelledby="settings-title">
+				<form method="post" action="/account/name">
+					<h2 id="settings-title">Settings</h2>
+					<label for="settings-name">Your name</label>
+					<input id="settings-name" name="name" type="text" value="{{account.name}}" maxlength="60" required autocomplete="name">
+					<p class="settings-hint">
+						Shown in the top right corner and to your instructor, whichever
+						way you sign in. Up to 60 characters.
+					</p>
+					<div class="dialog-actions">
+						<button type="button" class="quiet" id="settings-cancel">Cancel</button>
+						<button type="submit">Save</button>
+					</div>
+				</form>
+			</dialog>
 			{# asked before any Delete goes out; app.js fills in the machine and submits its form #}
 			<dialog id="delete-dialog" class="dialog" aria-labelledby="delete-title" aria-describedby="delete-text">
 				<div>
