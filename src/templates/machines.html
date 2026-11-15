@@ -9,25 +9,71 @@
 		<script src="/static/app.js" defer></script>
 	</head>
 	<body data-page="machines">
+		{# a sign-in method's icon; the paths are spelled out so the template stays plain HTML to tidy #}
+		{% macro method_icon(icon, alt) -%}
+			{% if icon == "google" %}<img class="method-icon" src="/static/google.svg" alt="{{alt}}">
+			{%- elif icon == "github" %}<img class="method-icon" src="/static/github.svg" alt="{{alt}}">
+			{%- else %}<img class="method-icon" src="/static/email.svg" alt="{{alt}}">{% endif %}
+		{%- endmacro %}
 		<header class="topbar">
 			<a class="brand" href="/">
 				<img class="brand-mark" src="/static/favicon.svg" alt="">
 				Machines
 			</a>
 			<div class="whoami">
-				<span class="signed-in" title="Signed in with {{sign_in.name}}">
-					{% if sign_in.icon == "google" %}
-						<img class="method-icon" src="/static/google.svg" alt="{{sign_in.name}}">
-					{% elif sign_in.icon == "github" %}
-						<img class="method-icon" src="/static/github.svg" alt="{{sign_in.name}}">
-					{% else %}
-						<img class="method-icon" src="/static/email.svg" alt="{{sign_in.name}}">
-					{% endif %}
-					<span class="email">Signed in as {{user.email}}</span>
-				</span>
-				{% if admin %}
-					<span class="badge">admin</span>
-				{% endif %}
+				{# the account panel: who is signed in, and every way they sign in #}
+				<div class="account">
+					<button id="account-button" class="account-button" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="account-menu" title="Your account">
+						{{method_icon(sign_in.icon, sign_in.name)}}
+						<span class="email">Signed in as {{user.email}}</span>
+						{% if admin %}
+							<span class="badge">admin</span>
+						{% endif %}
+					</button>
+					<div id="account-menu" class="account-menu" role="group" aria-label="Your account" hidden>
+						<dl class="account-details">
+							<dt>Email</dt>
+							<dd>{{account.email}}</dd>
+							<dt>Signed in with</dt>
+							<dd>{{sign_in.name}}</dd>
+							<dt>Role</dt>
+							<dd>{{account.role}}</dd>
+							<dt>Machine</dt>
+							<dd>{{account.machine}}</dd>
+							<dt>Since</dt>
+							<dd>{{account.since or "–"}}</dd>
+						</dl>
+						<h3 class="account-heading">
+							{% if account.logins|length == 1 %}Your way to sign in{% else %}Your {{account.logins|length}} ways to sign in{% endif %}
+						</h3>
+						<ul class="account-logins">
+							{% for login in account.logins %}
+								<li class="account-login">
+									{{method_icon(login.icon, "")}}
+									<div>
+										<div class="account-login-name">
+											{{login.name}}
+											{% if login.current %}<span class="badge">this session</span>{% endif %}
+										</div>
+										<div class="account-login-meta">{{login.id_label}} {{login.id}}</div>
+										{% if login.email %}
+											<div class="account-login-meta">reports {{login.email}}</div>
+										{% endif %}
+										{% if login.unverified %}
+											<div class="account-login-meta">email not verified yet</div>
+										{% elif login.last %}
+											<div class="account-login-meta">last used {{login.last}}</div>
+										{% endif %}
+									</div>
+								</li>
+							{% endfor %}
+						</ul>
+						<p class="account-note">
+							Signing in with Google, GitHub or a password under the same
+							verified email always reaches this same account.
+						</p>
+					</div>
+				</div>
 				<form method="post" action="/auth/logout">
 					<button type="submit" class="quiet with-icon">
 						<img class="method-icon" src="/static/signout.svg" alt="">

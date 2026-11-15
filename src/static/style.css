@@ -78,11 +78,127 @@ button {
 	min-width: 0;
 }
 
-.whoami .signed-in {
+/* the account panel: the name in the top bar opens it */
+.account {
+	position: relative;
+	min-width: 0;
+}
+
+.account-button {
 	display: inline-flex;
 	align-items: center;
 	gap: 0.4rem;
-	min-width: 0;
+	max-width: 100%;
+	padding: 0.25rem 0.6rem;
+	color: var(--muted);
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 999px;
+}
+
+.account-button:hover,
+.account-button[aria-expanded="true"] {
+	background: #f3f4f6;
+	border-color: var(--line);
+}
+
+.account-menu {
+	position: absolute;
+	right: 0;
+	top: calc(100% + 0.4rem);
+	z-index: 20;
+	width: max-content;
+	min-width: 18rem;
+	max-width: min(26rem, calc(100vw - 2rem));
+	padding: 0.9rem 1rem;
+	color: var(--ink);
+	background: #fff;
+	border: 1px solid var(--line);
+	border-radius: 12px;
+	box-shadow: 0 8px 24px rgb(15 23 42 / 14%);
+}
+
+.account-menu[hidden] {
+	display: none;
+}
+
+/* on a phone the name is not at the right edge: the panel spans the screen under the top bar */
+@media (width <= 600px) {
+	.account {
+		position: static;
+	}
+
+	.account-menu {
+		position: fixed;
+		top: calc(var(--topbar) + 0.4rem);
+		right: 1rem;
+		left: 1rem;
+		width: auto;
+		min-width: 0;
+		max-width: none;
+	}
+}
+
+.account-details {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: 0.35rem 1rem;
+	margin: 0;
+}
+
+.account-details dt,
+.account-login-meta,
+.account-note {
+	color: var(--muted);
+}
+
+.account-details dd {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+.account-heading {
+	margin: 0.9rem 0 0.5rem;
+	padding-top: 0.75rem;
+	font-size: 0.85rem;
+	border-top: 1px solid var(--line);
+}
+
+.account-logins {
+	display: flex;
+	flex-direction: column;
+	gap: 0.6rem;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.account-login {
+	display: flex;
+	gap: 0.6rem;
+	align-items: flex-start;
+}
+
+.account-login .method-icon {
+	margin-top: 0.1rem;
+}
+
+.account-login-name {
+	display: flex;
+	gap: 0.4rem;
+	align-items: center;
+	font-weight: 600;
+}
+
+.account-login-meta {
+	font-size: 0.8rem;
+	overflow-wrap: anywhere;
+}
+
+.account-note {
+	margin: 0.75rem 0 0;
+	font-size: 0.8rem;
+	line-height: 1.4;
 }
 
 .method-icon {

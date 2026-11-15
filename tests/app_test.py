@@ -103,12 +103,24 @@ class FakeDatastore:
         return contextlib.nullcontext()
 
     def query(self, kind):
-        query = unittest.mock.Mock()
         if kind == "student":
-            query.fetch.return_value = self.students
-        else:
-            query.fetch.return_value = [e for (k, _name), e in self.entities.items() if k == kind]
-        return query
+            return FakeQuery(self.students)
+        return FakeQuery([e for (k, _name), e in self.entities.items() if k == kind])
+
+
+class FakeQuery:
+    """A Datastore query over a fixed list: fetch, narrowed by equality filters."""
+
+    def __init__(self, entities):
+        self.entities = entities
+
+    def add_filter(self, filter):  # named as the real client names it
+        assert filter.operator == "="
+        self.entities = [e for e in self.entities if e.get(filter.property_name) == filter.value]
+        return self
+
+    def fetch(self):
+        return list(self.entities)
 
 
 class FakeVerifier:
@@ -583,6 +595,36 @@ def test_github_without_a_verified_email_has_no_user():
     github_sign_in(client, 77, "")
     assert "user" not in module.datastore_client.entities[("login", "github:77")]
     assert "No machine is assigned to you" in client.get("/").get_data(as_text=True)
+
+
+def test_account_panel_lists_every_way_the_user_signs_in():
+    module, _fake_compute = load_app(ADMIN)
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    add_user(module, "github:77", "keren@gmail.com")
+    add_user(module, "email:keren@gmail.com", "keren@gmail.com")
+    add_user(module, "google:other", "someone@gmail.com")
+    body = signed_in_client(module, "keren@gmail.com", subject="google:g1").get("/").get_data(as_text=True)
+    assert 'id="account-menu"' in body
+    assert "Your 3 ways to sign in" in body
+    assert "Google ID g1" in body
+    assert "GitHub user ID 77" in body
+    # an email login's id is its email; the account's own address is not repeated per login
+    assert "Email keren@gmail.com" in body
+    assert "reports keren@gmail.com" not in body
+    assert "Google ID other" not in body
+    # the one in use comes first and says so
+    assert body.index("Google ID g1") < body.index("GitHub user ID 77")
+    assert body.count("this session") == 1
+    assert "keren (from the roster)" in body
+    assert "<dd>Student</dd>" in body
+
+
+def test_account_panel_of_an_unverified_password_login():
+    module, _fake_compute = load_app(ADMIN)
+    body = signed_in_client(module, "dana@proton.me", subject="email:dana@proton.me", verified=False).get("/").get_data(as_text=True)
+    assert "Your way to sign in" in body
+    assert "email not verified yet" in body
+    assert "<dd>none</dd>" in body
 
 
 def test_dev_login_only_when_enabled_and_never_on_cloud_run():
@@ -1159,8 +1201,8 @@ def test_top_bar_shows_how_the_user_signed_in(subject, icon, name):
     module, _fake_compute = load_app(ADMIN)
     client = signed_in_client(module, email="keren@gmail.com", subject=subject)
     body = client.get("/").get_data(as_text=True)
-    assert f'title="Signed in with {name}"' in body
     assert f'src="/static/{icon}.svg" alt="{name}"' in body
+    assert f"<dt>Signed in with</dt>\n\t\t\t\t\t\t\t<dd>{name}</dd>" in body
     assert 'src="/static/signout.svg"' in body
 
 

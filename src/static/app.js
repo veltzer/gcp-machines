@@ -280,7 +280,34 @@ function confirmDeletes() {
 	}
 }
 
+// The account panel under the top bar's name: opens and closes on the
+// name, closes on a click elsewhere or Escape.
+function setupAccountMenu() {
+	const button = $("account-button");
+	const menu = $("account-menu");
+	if (!button || !menu) {
+		return;
+	}
+	const show = (open) => {
+		menu.hidden = !open;
+		button.setAttribute("aria-expanded", String(open));
+	};
+	button.onclick = () => show(menu.hidden);
+	document.addEventListener("click", (event) => {
+		if (!menu.hidden && !event.target.closest(".account")) {
+			show(false);
+		}
+	});
+	document.addEventListener("keydown", (event) => {
+		if (event.key === "Escape" && !menu.hidden) {
+			show(false);
+			button.focus();
+		}
+	});
+}
+
 function machinesPage() {
+	setupAccountMenu();
 	fillAssignments();
 	localizeTimes();
 	confirmDeletes();

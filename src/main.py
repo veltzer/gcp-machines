@@ -169,6 +169,56 @@ def sign_in_method(user):
     return {"name": name, "icon": METHOD_ICONS.get(user.method, "email")}
 
 
+# what each provider's own id for a person is called, in the account panel
+PROVIDER_IDS = {"google": "Google ID", "github": "GitHub user ID", "email": "Email", "dev": "Email"}
+
+
+def describe_login(login, current, email):
+    """ one way of signing in, as the account panel shows it """
+    method, _, provider_id = login.key.name.partition(":")
+    last = login.get("last_login")
+    return {
+        "name": "Email and password" if method == "email" else METHODS.get(method, method),
+        "icon": METHOD_ICONS.get(method, "email"),
+        "id_label": PROVIDER_IDS.get(method, "ID"),
+        "id": provider_id,
+        # what the provider reports, only when it is news: not the account's
+        # email again, nor an email login's id (which is its email)
+        "email": "" if login.get("email", "") in (provider_id, email) else login.get("email", ""),
+        "last": last.strftime("%Y-%m-%d") if last else "",
+        "current": login.key.name == current,
+        "unverified": method == "email" and not login.get("verified"),
+    }
+
+
+def account_details(user, admin):
+    """
+    What the account panel under the top bar's name shows: who is signed in,
+    in which role, which machine they get and why, and every way this user
+    signs in (only the one used, for a login with no user yet).
+    """
+    if user.user is not None:
+        query = datastore_client.query(kind=users.LOGIN)
+        query.add_filter(filter=datastore.query.PropertyFilter("user", "=", user.email))
+        logins = list(query.fetch())
+    else:
+        logins = [user.login]
+    # the one in use first, then the others by name
+    described = sorted(
+        (describe_login(login, user.subject, user.email) for login in logins),
+        key=lambda login: (not login["current"], login["name"]),
+    )
+    owner, source = assignment(user)
+    created = (user.user or user.login).get("created")
+    return {
+        "email": user.email,
+        "role": "Admin" if admin else "Student",
+        "machine": f"{owner} ({'assigned by an admin' if source == 'assigned' else 'from the roster'})" if owner else "none",
+        "since": created.strftime("%Y-%m-%d") if created else "",
+        "logins": described,
+    }
+
+
 def students_table(machines):
     """
     Every user (with all the ways they sign in) and every login that has no
@@ -373,6 +423,7 @@ def root():
         admin=admin,
         unverified=user.needs_verification,
         sign_in=sign_in_method(user),
+        account=account_details(user, admin),
         students=students,
         pending=pending,
         owners=owners,
