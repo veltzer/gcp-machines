@@ -54,15 +54,24 @@ KEY_SECRET_PREFIX = "machine-key-"
 RESOURCE_NAME = re.compile(r"[a-z]([-a-z0-9]{0,61}[a-z0-9])?")
 
 
-def instance_name(owner):
+def instance_name(owner, number):
     """
-    The name of the owner's machine, or None when the owner label cannot
-    form a valid instance name. One name per owner is what keeps it to one
-    machine per student: a second insert of the same name in the same zone
-    fails, however the requests race.
+    The name of the owner's machine number <number> (1, 2, ...), or None
+    when the owner label cannot form a valid instance name. A fixed name per
+    owner and number is what keeps two racing requests from making two
+    machines where one was allowed: the second insert of the same name in
+    the same zone fails.
     """
-    name = "machine-" + owner.replace("_", "-")
+    name = f"machine-{owner.replace('_', '-')}-{number}"
     return name if RESOURCE_NAME.fullmatch(name) else None
+
+
+def next_number(owner, names):
+    """ the lowest machine number of owner that none of names (existing instance names) uses """
+    number = 1
+    while instance_name(owner, number) in names:
+        number += 1
+    return number
 
 
 def generate_key_pair(comment):
@@ -168,11 +177,11 @@ def pick_zone(compute, project_id, http=None):
     return None
 
 
-def create(compute, secrets, project_id, owner, zone, extra_keys=(), http=None):
+def create(compute, secrets, project_id, owner, number, zone, extra_keys=(), http=None):
     """
-    Creates the owner's machine in zone with a new key pair of its own, and
-    returns (instance name, insert operation name). Does not wait for it to
-    come up.
+    Creates the owner's machine number <number> in zone with a new key pair
+    of its own, and returns (instance name, insert operation name). Does
+    not wait for it to come up.
 
     The insert goes first and the key is stored after it: of two racing
     requests for the same owner the second insert fails (same name, same
@@ -181,7 +190,7 @@ def create(compute, secrets, project_id, owner, zone, extra_keys=(), http=None):
     extra_keys are more public key lines its ubuntu user accepts (the
     admin's, from the command line).
     """
-    name = instance_name(owner)
+    name = instance_name(owner, number)
     if name is None:
         raise ValueError(f"owner label {owner!r} does not make a valid machine name")
     private_key, public_key = generate_key_pair(f"{owner}@{name}")

@@ -870,17 +870,17 @@ def test_student_creates_their_machine_with_its_own_key():
     instances = fake_compute.instances.return_value
     instances.insert.return_value.execute.return_value = {"name": "operation-1"}
     response = signed_in_client(module, "dana@gmail.com").post("/create", follow_redirects=True)
-    assert "Creating machine machine-dana" in response.get_data(as_text=True)
+    assert "Creating machine machine-dana-1" in response.get_data(as_text=True)
     body = instances.insert.call_args.kwargs["body"]
     assert instances.insert.call_args.kwargs["zone"] == "us-central1-a"
-    assert body["name"] == "machine-dana"
+    assert body["name"] == "machine-dana-1"
     assert body["labels"] == {"owner": "dana"}
     assert body["scheduling"]["maxRunDuration"] == {"seconds": "14400"}
     public_key = body["metadata"]["items"][0]["value"]
     assert public_key.startswith("ubuntu:ssh-ed25519 ")
-    assert public_key.endswith(" dana@machine-dana")
+    assert public_key.endswith(" dana@machine-dana-1")
     secrets = secrets_of(fake_compute)
-    assert secrets.create.call_args.kwargs["secretId"] == "machine-key-machine-dana"
+    assert secrets.create.call_args.kwargs["secretId"] == "machine-key-machine-dana-1"
     stored = secrets.addVersion.call_args.kwargs["body"]["payload"]["data"]
     assert base64.b64decode(stored).startswith(b"-----BEGIN OPENSSH PRIVATE KEY-----")
 
@@ -906,13 +906,88 @@ def test_create_says_so_when_there_is_no_room():
     fake_compute.instances.return_value.insert.assert_not_called()
 
 
-def test_one_machine_per_student():
+def test_one_machine_per_student_by_default():
     module, fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
     set_quota(fake_compute, free_cpus=8)
     response = signed_in_client(module, "keren@gmail.com").post("/create", follow_redirects=True)
-    assert "You already have a machine" in response.get_data(as_text=True)
+    assert "as many as you may have (1)" in response.get_data(as_text=True)
     fake_compute.instances.return_value.insert.assert_not_called()
+
+
+def test_a_student_with_a_higher_limit_creates_another_machine():
+    module, fake_compute = load_app(ADMIN)
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    set_quota(fake_compute, free_cpus=8)
+    student = signed_in_client(module, "keren@gmail.com")
+    admin = signed_in_client(module)
+    assert admin.post("/admin/assign", data={"target": "user:keren@gmail.com", "owner": "", "limit": "3"}).status_code == 302
+    body = student.get("/").get_data(as_text=True)
+    assert "Your machines" in body
+    assert "You have 1 of the 3 machines you may have." in body
+    assert "Create another machine" in body
+    instances = fake_compute.instances.return_value
+    instances.insert.return_value.execute.return_value = {"name": "operation-1"}
+    student.post("/create")
+    # machine-keren (an older name) is not one of the numbered ones, so number 1 is free
+    assert instances.insert.call_args.kwargs["body"]["name"] == "machine-keren-1"
+    assert instances.insert.call_args.kwargs["body"]["labels"] == {"owner": "keren"}
+
+
+def test_machine_numbers_fill_the_lowest_gap():
+    module, _fake_compute = load_app()
+    names = {"machine-keren-1", "machine-keren-3", "machine-raz-2"}
+    assert module.provision.next_number("keren", names) == 2
+    assert module.provision.next_number("raz", names) == 1
+
+
+def test_a_student_at_the_limit_is_not_offered_another():
+    module, fake_compute = load_app(ADMIN)
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    add_user(module, "google:keren@gmail.com", "keren@gmail.com")
+    module.datastore_client.get(FakeKey("user", "keren@gmail.com"))["machine_limit"] = 0
+    body = signed_in_client(module, "keren@gmail.com", subject="google:keren@gmail.com").get("/").get_data(as_text=True)
+    assert 'action="/create"' not in body
+    assert "<dd>up to 0 at once</dd>" in body
+    assert signed_in_client(module, "keren@gmail.com", subject="google:keren@gmail.com").post("/create").status_code == 302
+    fake_compute.instances.return_value.insert.assert_not_called()
+
+
+def test_admin_sets_and_clears_the_machine_limit():
+    module, _fake_compute = load_app(ADMIN)
+    add_user(module, "google:keren", "keren@gmail.com")
+    admin = signed_in_client(module)
+    user = module.datastore_client.entities[("user", "keren@gmail.com")]
+    admin.post("/admin/assign", data={"target": "user:keren@gmail.com", "owner": "", "limit": "4"})
+    assert user["machine_limit"] == 4
+    assert 'value="4" aria-label="Machine limit for keren@gmail.com"' in admin.get("/").get_data(as_text=True)
+    # back to the default: stored as no limit at all
+    admin.post("/admin/assign", data={"target": "user:keren@gmail.com", "owner": "", "limit": "1"})
+    assert "machine_limit" not in user
+    for bad in ("-1", "11", "two"):
+        response = admin.post("/admin/assign", data={"target": "user:keren@gmail.com", "owner": "", "limit": bad})
+        assert response.status_code == 400
+
+
+def test_admin_may_assign_a_roster_owner_that_has_no_machine_yet():
+    module, _fake_compute = load_app(ADMIN)
+    set_mapping(module, {"dana@gmail.com": "dana"})
+    add_user(module, "google:keren", "keren@gmail.com")
+    admin = signed_in_client(module)
+    assert admin.post("/admin/assign", data={"target": "user:keren@gmail.com", "owner": "dana"}).status_code == 302
+    assert module.datastore_client.entities[("user", "keren@gmail.com")]["owner"] == "dana"
+
+
+def test_a_machine_limit_on_an_unverified_login_moves_to_its_user():
+    module, _fake_compute = load_app(ADMIN)
+    client = module.app.test_client()
+    register(client)
+    admin = signed_in_client(module)
+    admin.post("/admin/assign", data={"target": "login:email:dana@proton.me", "owner": "", "limit": "2"})
+    follow_link(module, client)
+    client.get("/")
+    assert module.datastore_client.entities[("user", "dana@proton.me")]["machine_limit"] == 2
+    assert "machine_limit" not in module.datastore_client.entities[("login", "email:dana@proton.me")]
 
 
 def test_a_racing_second_create_does_not_replace_the_key():
@@ -936,7 +1011,7 @@ def test_a_machine_whose_key_cannot_be_stored_is_removed():
         unittest.mock.Mock(status=403, reason="Forbidden"), b"")
     response = signed_in_client(module, "dana@gmail.com").post("/create")
     assert response.status_code == 502
-    instances.delete.assert_called_once_with(project="test-project", zone="us-central1-a", instance="machine-dana")
+    instances.delete.assert_called_once_with(project="test-project", zone="us-central1-a", instance="machine-dana-1")
 
 
 def test_unassigned_account_cannot_create():
@@ -968,9 +1043,8 @@ def test_delete_asks_first():
 
 def test_owner_labels_become_valid_machine_names():
     module, _fake_compute = load_app()
-    assert module.provision.instance_name("dana_k") == "machine-dana-k"
-    assert module.provision.instance_name("dana-") is None
-    assert module.provision.instance_name("x" * 60) is None
+    assert module.provision.instance_name("dana_k", 2) == "machine-dana-k-2"
+    assert module.provision.instance_name("x" * 60, 1) is None
 
 
 def test_roster_match_of_a_password_account_is_suggested_not_given():

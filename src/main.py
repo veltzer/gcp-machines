@@ -215,6 +215,7 @@ def account_details(user, admin):
         "role": "Admin" if admin else "Student",
         "machine": f"{owner} ({'assigned by an admin' if source == 'assigned' else 'from the roster'})" if owner else "none",
         "since": created.strftime("%Y-%m-%d") if created else "",
+        "limit": user.machine_limit,
         "logins": described,
     }
 
@@ -256,6 +257,7 @@ def students_table(machines):
             "source": source,
             "assigned": account.owner or "",
             "suggested": suggested,
+            "limit": account.machine_limit,
         })
     rows.sort(key=lambda row: (row["email"], row["method"]))
     signed_up = {row["email"].lower() for row in rows if row["target"].startswith("user:")}
@@ -408,11 +410,12 @@ def root():
     admin = is_admin(user)
     students = pending = owners = summary = None
     owner = owner_of(user)
-    # the account's own machine is missing: offer to create it
-    can_create = owner is not None and not any(m["owner"] == owner for m in machines)
+    # how many of its machines the account has, and whether it may make another
+    count = sum(m["owner"] == owner for m in machines) if owner is not None else 0
+    can_create = owner is not None and count < user.machine_limit
     if admin:
         students, pending = students_table(machines)
-        owners = sorted({m["owner"] for m in machines if m["owner"] != "unknown"})
+        owners = known_owners(machines)
         summary = machines_summary(machines)
     else:
         machines = [m for m in machines if owner is not None and m["owner"] == owner]
@@ -429,9 +432,17 @@ def root():
         owners=owners,
         owner=owner,
         can_create=can_create,
+        count=count,
+        limit=user.machine_limit,
+        max_limit=users.MAX_MACHINE_LIMIT,
         summary=summary,
         hours=provision.MAX_RUN_SECONDS // 3600,
     )
+
+
+def known_owners(machines):
+    """ the owner labels an admin may assign: the roster's and those of existing machines """
+    return sorted(set(email_to_owner().values()) | {m["owner"] for m in machines if m["owner"] != "unknown"})
 
 
 def machines_summary(machines):
@@ -492,17 +503,22 @@ def download_key():
 @auth.login_required
 def assign():
     """
-    Assign a machine (by its owner label) to a user, or to a login that has
-    no user yet, or clear the assignment so it falls back to the roster.
-    Admins only.
+    Set, for a user or a login that has no user yet, which owner label its
+    machines carry (empty: the roster decides) and how many machines it may
+    have at once. Admins only.
     """
     if not is_admin(auth.current_user()):
         flask.abort(403, "Only an admin may assign machines.")
     target = flask.request.form["target"]
     owner = flask.request.form["owner"]
-    if owner and owner not in {m["owner"] for m in get_machines()}:
-        flask.abort(400, "There is no machine with that owner.")
-    if not users.set_owner(datastore_client, target, owner):
+    if owner and owner not in known_owners(get_machines()):
+        flask.abort(400, "There is no student or machine with that owner.")
+    limit = flask.request.form.get("limit")
+    if limit is not None:
+        if not limit.isdigit() or int(limit) > users.MAX_MACHINE_LIMIT:
+            flask.abort(400, f"The machine limit is a number from 0 to {users.MAX_MACHINE_LIMIT}.")
+        limit = int(limit)
+    if not users.assign(datastore_client, target, owner, limit):
         flask.abort(404, "There is no such account.")
     return flask.redirect(flask.url_for("root", _anchor="students"))
 
@@ -526,25 +542,30 @@ def instance_from_form():
 @auth.login_required
 def create():
     """
-    Create the signed-in account's machine: the one its assignment names,
-    and only when it has none yet (one machine per student).
+    Create a machine for the signed-in account, under the owner label its
+    assignment names, while it has fewer than its machine limit. It gets
+    the lowest machine number the owner does not use yet.
     """
     user = auth.current_user()
     owner = owner_of(user)
     if owner is None:
         flask.abort(403, "No machine is assigned to you. Contact your instructor.")
-    if any(m["owner"] == owner for m in get_machines()):
-        return done("You already have a machine.")
-    if provision.instance_name(owner) is None:
+    names = {m["name"] for m in get_machines() if m["owner"] == owner}
+    if len(names) >= user.machine_limit:
+        limit = user.machine_limit
+        return done(f"You have {len(names)} machine{'' if len(names) == 1 else 's'}, "
+                    f"as many as you may have ({limit}). Ask your instructor for more.")
+    number = provision.next_number(owner, names)
+    if provision.instance_name(owner, number) is None:
         flask.abort(400, "Your assignment does not make a valid machine name. Contact your instructor.")
     zone = provision.pick_zone(compute, project_id, http=api_http())
     if zone is None:
         return done("There is no room for another running machine right now. Try again later.")
     try:
-        name, _operation = provision.create(compute, secret_manager, project_id, owner, zone, http=api_http())
+        name, _operation = provision.create(compute, secret_manager, project_id, owner, number, zone, http=api_http())
     except HttpError as error:
-        if error.resp.status == 409:  # a second click, or the old one still being deleted
-            return done("Your machine is already being created or deleted. Refresh in a minute.")
+        if error.resp.status == 409:  # a second click, or one of that name still being deleted
+            return done("That machine is already being created or deleted. Refresh in a minute.")
         raise
     return done(
         f"Creating machine {name}. It takes a minute or two: refresh until it has an IP, "

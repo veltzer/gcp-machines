@@ -40,6 +40,8 @@
 							<dd>{{account.role}}</dd>
 							<dt>Machine</dt>
 							<dd>{{account.machine}}</dd>
+							<dt>Machines</dt>
+							<dd>up to {{account.limit}} at once</dd>
 							<dt>Since</dt>
 							<dd>{{account.since or "–"}}</dd>
 						</dl>
@@ -99,7 +101,7 @@
 					</form>
 				</div>
 			{% endif %}
-			<h1>{% if admin %}All machines{% else %}Your machine{% endif %}</h1>
+			<h1>{% if admin %}All machines{% elif limit > 1 or machines|length > 1 %}Your machines{% else %}Your machine{% endif %}</h1>
 			{% if summary %}
 				<p class="summary">
 					<span><strong>{{summary.up}}</strong> up</span>
@@ -110,7 +112,7 @@
 			{% endif %}
 			{% if (machines or can_create) and not admin %}
 				<p class="hint-left">
-					Create your machine when you need it, download its key, then connect
+					Create a machine when you need it{% if limit > 1 %} (you may have up to {{limit}} at once){% endif %}, download its key, then connect
 					with the ssh command shown on the card (on Linux and macOS first run
 					<code>chmod 600</code> on the key file). Stop it when you are done
 					for the day: your files are kept. A machine turns itself off {{hours}}
@@ -122,9 +124,12 @@
 			{% endif %}
 			{% if can_create %}
 				<div class="create">
-					<p>You have no machine{% if admin %} of your own ({{owner}}){% endif %}.</p>
+					<p>
+						{% if count == 0 %}You have no machine{% if admin %} of your own ({{owner}}){% endif %}.
+						{% else %}You have {{count}} of the {{limit}} machines you may have.{% endif %}
+					</p>
 					<form method="post" action="/create">
-						<button type="submit">Create my machine</button>
+						<button type="submit">{% if count == 0 %}Create my machine{% else %}Create another machine{% endif %}</button>
 					</form>
 				</div>
 			{% elif machines|length == 0 and admin %}
@@ -246,6 +251,10 @@
 									<select name="owner" aria-label="Machine for {{row.email}}" data-selected="{{row.assigned or row.suggested}}">
 										<option value="">roster / none</option>
 									</select>
+									<label class="limit" title="How many machines this student may have at once">
+										<input type="number" name="limit" min="0" max="{{max_limit}}" value="{{row.limit}}" aria-label="Machine limit for {{row.email}}">
+										max
+									</label>
 									<button type="submit" class="quiet">Save</button>
 								</form>
 							</div>

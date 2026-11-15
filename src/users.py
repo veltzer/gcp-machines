@@ -24,8 +24,8 @@ change later, the login keeps its user rather than moving to another.
 
 Login fields: email (as the provider last reported it), name, picture,
 verified, user (the key name of its user; absent until it joins one),
-owner (only on a login that has not joined a user: the machine owner label
-an admin assigned to it; it moves to the user on joining), created,
+owner and machine_limit (only on a login that has not joined a user: what
+an admin set for it; both move to the user on joining), created,
 last_login, and for password logins only:
 
     password_hash        werkzeug hash of the password
@@ -38,7 +38,8 @@ last_login, and for password logins only:
                          auth.check_verification
 
 User fields: email, name, picture, owner (the machine owner label an admin
-assigned, absent until then), created, last_login.
+assigned, absent until then), machine_limit (how many machines the user may
+have at once, absent for DEFAULT_MACHINE_LIMIT), created, last_login.
 """
 
 import dataclasses
@@ -49,6 +50,14 @@ from google.cloud import datastore
 
 LOGIN = "login"
 USER = "user"
+
+# how many machines a user may have at once unless an admin set otherwise,
+# and the most an admin may allow
+DEFAULT_MACHINE_LIMIT = 1
+MAX_MACHINE_LIMIT = 10
+
+# what an admin sets, kept on the user (or on a login with no user yet)
+ASSIGNED = ("owner", "machine_limit")
 
 # never indexed: nobody queries by them, and an index on the hash would be a
 # second copy of it
@@ -97,6 +106,13 @@ class Account:
         return entity.get("owner") if entity is not None else None
 
     @property
+    def machine_limit(self):
+        """ how many machines this account may have at once """
+        entity = self.user if self.user is not None else self.login
+        limit = entity.get("machine_limit") if entity is not None else None
+        return DEFAULT_MACHINE_LIMIT if limit is None else limit
+
+    @property
     def target(self):
         """ what an admin's assignment is stored on (see set_owner) """
         return f"user:{self.email}" if self.user is not None else f"login:{self.subject}"
@@ -128,8 +144,9 @@ def load(client, subject):
 def join(client, login):
     """
     Attach a login whose email is verified to the user of that email,
-    creating the user on first sight. An assignment the login carried moves
-    to the user unless the user already has one. Returns the user entity.
+    creating the user on first sight. What an admin set on the login (its
+    assignment, its machine limit) moves to the user, except what the user
+    has set already. Returns the user entity.
     """
     email = login["email"]
     with client.transaction():
@@ -140,9 +157,10 @@ def join(client, login):
         user["name"] = user.get("name") or login.get("name", "")
         user["picture"] = user.get("picture") or login.get("picture", "")
         user["last_login"] = now()
-        owner = login.pop("owner", None)
-        if owner and not user.get("owner"):
-            user["owner"] = owner
+        for field in ASSIGNED:
+            value = login.pop(field, None)
+            if value is not None and user.get(field) is None:
+                user[field] = value
         login["user"] = email
         client.put(user)
         client.put(login)
@@ -240,11 +258,12 @@ def mark_verified(client, login):
     return join(client, login)
 
 
-def set_owner(client, target, owner):
+def assign(client, target, owner, machine_limit=None):
     """
-    Assign a machine owner label to "user:<email>" or "login:<subject>" (a
-    login with no user yet), or with an empty owner clear the assignment.
-    Returns False when there is no such user or user-less login.
+    Set what an admin decides for "user:<email>" or "login:<subject>" (a
+    login with no user yet): the machine owner label (empty clears it, so
+    the roster decides) and, when given, the machine limit (the default
+    clears it). Returns False when there is no such user or user-less login.
     """
     kind, _, name = target.partition(":")
     if kind not in (USER, LOGIN) or not name:
@@ -257,5 +276,10 @@ def set_owner(client, target, owner):
             entity["owner"] = owner
         else:
             entity.pop("owner", None)
+        if machine_limit is not None:
+            if machine_limit == DEFAULT_MACHINE_LIMIT:
+                entity.pop("machine_limit", None)
+            else:
+                entity["machine_limit"] = machine_limit
         client.put(entity)
     return True

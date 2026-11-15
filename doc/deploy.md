@@ -131,13 +131,18 @@ organization:
 ## Machines and their keys
 
 Machines are made on demand: a student whose account maps to an owner (by
-the roster or an admin's assignment) and who has no machine gets a Create
-my machine button. It makes `machine-<owner>` in the first of
+the roster or an admin's assignment) gets a Create button while they have
+fewer machines than their limit: 1 unless an admin set another (0 to 10,
+the number next to the assignment on the Students table, stored as
+`machine_limit` on the user). It makes `machine-<owner>-<n>`, with the
+lowest number the owner does not use yet, in the first of
 `provision.ALLOWED_ZONES` whose region has CPU quota left, labelled with
-the owner. One name per owner is what keeps it to one machine per student.
-From its card the student can Start, Stop and Delete it (Delete removes the
-disk and the key for good; a new machine comes with a new key). Admins can
-do the same to every machine. Whatever is running turns itself off 4 hours
+the owner. The fixed name per number is what keeps two racing clicks from
+making two machines where one was allowed. From its card the student can
+Start, Stop and Delete each machine (Delete removes the disk and the key
+for good; a new machine comes with a new key). Admins can do the same to
+every machine. An admin may assign any owner label of the roster or of an
+existing machine. Whatever is running turns itself off 4 hours
 after it starts (`provision.MAX_RUN_SECONDS`); the disk is kept.
 
 Each machine gets its own ed25519 key pair: the private key goes straight

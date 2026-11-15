@@ -426,11 +426,12 @@ def show_input_sample():
 
 def create_command(args, project_id, compute):
     """
-    Creates a VM for every owner in the student list who has none yet,
-    allocating owners to zones up to each zone's machine limit, and waits
-    according to args.wait_mode. Re-runnable: a machine is named after its
-    owner (provision.instance_name), so adding a student and running create
-    again creates just that one.
+    Creates a VM for every owner in the student list who has none yet (their
+    machine number 1), allocating owners to zones up to each zone's machine
+    limit, and waits according to args.wait_mode. Re-runnable: adding a
+    student and running create again creates just that one. More machines
+    per student are made by the students themselves in the web app, up to
+    the limit an admin set them there.
     """
     with open(SSH_KEY_FILE, "r", encoding="utf-8") as f:
         ssh_key = f.read().strip()
@@ -449,7 +450,7 @@ def create_command(args, project_id, compute):
             f"Duplicate owner(s) in {STUDENTS_FILE}: "
             f"{', '.join(sorted(duplicates))}"
         )
-    invalid = [owner for owner in owners if provision.instance_name(owner) is None]
+    invalid = [owner for owner in owners if provision.instance_name(owner, 1) is None]
     if invalid:
         raise ValueError(f"Owner(s) that make no valid machine name: {', '.join(invalid)}")
 
@@ -493,9 +494,9 @@ def create_command(args, project_id, compute):
     secrets = get_secrets_client()
     operations = []
     for owner, zone in assignments:
-        name = provision.instance_name(owner)
+        name = provision.instance_name(owner, 1)
         print(f"Creating {name} in {zone} for {owner}...")
-        _name, op_name = provision.create(compute, secrets, project_id, owner, zone, extra_keys=[ssh_key])
+        _name, op_name = provision.create(compute, secrets, project_id, owner, 1, zone, extra_keys=[ssh_key])
         if args.wait_mode == WAIT_EACH:
             wait_for_operation(project_id, compute, zone, op_name, "come up")
             print(f"Instance {name} created successfully.")

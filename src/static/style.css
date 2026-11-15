@@ -813,10 +813,10 @@ button:disabled {
 
 .student {
 	display: grid;
-	grid-template-columns: minmax(12rem, 2fr) minmax(6rem, 1fr) minmax(8rem, 1fr) minmax(14rem, 1.5fr);
+	grid-template-columns: minmax(12rem, 2fr) minmax(6rem, 1fr) minmax(8rem, 1fr) minmax(19rem, 1.5fr);
 	align-items: center;
 	gap: 0.5rem 1rem;
-	min-width: 44rem;
+	min-width: 49rem;
 	padding: 0.6rem 0.9rem;
 	border-bottom: 1px solid var(--line);
 }
@@ -844,6 +844,7 @@ button:disabled {
 .assign {
 	display: flex;
 	gap: 0.4rem;
+	align-items: center;
 	margin: 0;
 }
 
@@ -950,4 +951,18 @@ button.danger:not(.quiet) {
 button.danger:not(.quiet):hover:not(:disabled) {
 	background: #991b1b;
 	border-color: #991b1b;
+}
+
+/* the machine limit next to the assign select on the Students table */
+.limit {
+	display: inline-flex;
+	gap: 0.3rem;
+	align-items: center;
+	color: var(--muted);
+	font-size: 0.8rem;
+}
+
+.limit input {
+	width: 3.5rem;
+	padding: 0.3rem 0.4rem;
 }
