@@ -111,9 +111,11 @@ organization:
    App`, homepage `https://machines.veltzer.org`, callback
    `https://machines.veltzer.org/auth/oauth/github/callback`. Paste the
    client ID into `gcp_github_client_id`, store the client secret with
-   `pass insert keys/github.com.machines-oauth`, add that entry to
-   `gcp_secrets` and `GITHUB_CLIENT_SECRET` to `--set-secrets` in
-   `.gcp.conf`, and re-run `gcloud_project_setup.sh`.
+   `pass insert keys/github.com.machines-oauth`, and run
+   `gcloud_project_setup.sh`, which copies it to the Secret Manager secret
+   `machines-github-client-secret` (`gcp_secrets` in `.gcp.conf`; the
+   service gets it as `GITHUB_CLIENT_SECRET`). Done on 2026-11-15: the app
+   is "Machines" (`github.com/settings/applications/4022558`).
 
 ## Machines and their keys
 
