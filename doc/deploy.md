@@ -6,7 +6,7 @@ The app runs as a Cloud Run service called `machines` in `us-central1`
 ## Regular deploy
 
 ```bash
-gcloud_run_deploy.sh
+gcloud_deploy.sh
 ```
 
 The script (from the utils-bash repo) wraps `gcloud run deploy --source .`:
@@ -29,7 +29,7 @@ file says.
    among them the session cookie key. Safe to re-run.
 1. Create the sign-in clients (next section) and paste their IDs into
    `.gcp.conf`. Without them the app still works with email and password.
-1. Deploy: `gcloud_run_deploy.sh`.
+1. Deploy: `gcloud_deploy.sh`.
 
 ## Sign-in
 

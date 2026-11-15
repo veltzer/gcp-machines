@@ -1,4 +1,4 @@
-# Container image for the Cloud Run service (built by gcloud_run_deploy.sh from utils-bash via
+# Container image for the Cloud Run service (built by gcloud_deploy.sh from utils-bash via
 # `gcloud run deploy --source`). Dependencies come from uv.lock, the single
 # place versions are controlled.
 
@@ -14,7 +14,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
 COPY src ./src
-# The deploy stamp is written by gcloud_run_deploy.sh just before deploying;
+# The deploy stamp is written by gcloud_deploy.sh just before deploying;
 # building without it fails on purpose so an unstamped image never ships.
 COPY build_info.json ./
 

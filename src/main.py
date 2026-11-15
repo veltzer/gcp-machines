@@ -28,7 +28,7 @@ from src import auth, users, verification
 
 HTML_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "html")
 
-# The deploy stamp gcloud_run_deploy.sh (utils-bash) writes at the repo (and
+# The deploy stamp gcloud_deploy.sh (utils-bash) writes at the repo (and
 # image) root just before deploying: when, and from which commit. Absent in
 # development.
 BUILD_INFO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "build_info.json")
