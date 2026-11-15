@@ -78,7 +78,7 @@ async function showBuild() {
 // ─── sign-in page ───────────────────────────────────────────────────────────
 
 function setupProviders(configured) {
-	for (const link of document.querySelectorAll(".provider[data-provider]")) {
+	for (const link of document.querySelectorAll(".method[data-provider]")) {
 		if (configured[link.dataset.provider]) {
 			continue;
 		}
@@ -139,7 +139,7 @@ function setupEmailForm(minLength) {
 	applyMode();
 }
 
-// the email icon opens the email form under the icons, and closes it again
+// the email tile opens the email form under the tiles, and closes it again
 function setupEmailMethod() {
 	const button = $("email-method");
 	button.onclick = () => {

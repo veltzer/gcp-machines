@@ -546,113 +546,83 @@ button:disabled:hover {
 	color: var(--muted);
 }
 
-/* the ways to sign in: a round icon each, its name under it */
+/* the three ways in, one tile each: Google, GitHub, Email */
 .methods {
-	display: flex;
-	justify-content: center;
-	gap: 2rem;
-	margin: 0.5rem 0 1.25rem;
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 0.75rem;
+	margin: 0 0 1rem;
 }
 
 .method {
+	position: relative;
 	display: flex;
 	flex-direction: column;
-	align-items: center;
-	gap: 0.4rem;
-}
-
-.method-name {
-	font-size: 0.85rem;
-	color: var(--muted);
-}
-
-/* 40px: the size of Google's large icon button, which cannot be drawn larger */
-.method-icon {
-	position: relative;
-	width: 40px;
-	height: 40px;
-}
-
-/* Google's own icon button, drawn by its script, centered in the same round slot */
-.gsi-slot {
-	display: flex;
+	gap: 0.5rem;
 	align-items: center;
 	justify-content: center;
-}
-
-/* Google's G has no size of its own and takes its parent's, which this page's layout leaves at 0: the 18px of its large button */
-#signin-button svg {
-	width: 18px;
-	height: 18px;
-}
-
-.method-button {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	padding: 0;
-	border: 1px solid var(--line);
-	border-radius: 50%;
-	background: #fff;
+	padding: 1rem 0.5rem;
 	color: var(--ink);
+	font: inherit;
+	font-weight: 600;
+	text-decoration: none;
+	background: #fff;
+	border: 1px solid var(--line);
+	border-radius: 14px;
 	cursor: pointer;
 	transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
 }
 
-.gsi-slot .method-button {
-	width: 40px;
-	height: 40px;
+.method img {
+	width: 32px;
+	height: 32px;
 }
 
-.method-button img,
-.method-button svg {
-	width: 20px;
-	height: 20px;
-	fill: currentcolor;
+.method:hover,
+.method[aria-expanded="true"] {
+	border-color: var(--accent);
+	box-shadow: 0 6px 16px rgb(37 99 235 / 14%);
 }
 
-.method-button:hover {
-	border-color: #9ca3af;
-	box-shadow: 0 4px 12px rgb(30 41 59 / 8%);
-}
-
-.method-button:active {
+.method:active {
 	transform: translateY(1px);
 }
 
-/* the method picked: the email icon while its form is open */
-.method-button[aria-expanded="true"] {
-	border-color: var(--accent);
-	box-shadow: 0 0 0 3px rgb(37 99 235 / 15%);
+.method:focus-visible,
+.method:focus-within {
+	outline: 3px solid rgb(37 99 235 / 35%);
+	outline-offset: 2px;
 }
 
-/* hidden wins over the display above: the email form until its icon opens it, Google's greyed icon while it works */
-.method-button[hidden],
-.email-form[hidden] {
-	display: none;
-}
-
-.method-button.off {
-	opacity: 0.5;
+.method.off {
+	opacity: 0.45;
 	cursor: not-allowed;
 	box-shadow: none;
 	transform: none;
+	border-color: var(--line);
 }
 
-.gsi-placeholder {
+/* where Google signs in through its own button (drawn by its script), the button lies unseen over the Google tile and takes its clicks */
+.gsi-button {
 	position: absolute;
 	inset: 0;
-	border-radius: 50%;
-	background: linear-gradient(90deg, #eef0f4 25%, #f8f9fb 50%, #eef0f4 75%);
-	background-size: 200% 100%;
-	animation: shimmer 1.4s linear infinite;
-	pointer-events: none;
+	overflow: hidden;
+	border-radius: inherit;
+	opacity: 0.01;
 }
 
-@keyframes shimmer {
-	to {
-		background-position: -200% 0;
-	}
+/* Google's button is 200 by 40: three times that covers the tile */
+.gsi-button > div {
+	transform: scale(3);
+	transform-origin: 0 0;
+}
+
+.method.off .gsi-button {
+	display: none;
+}
+
+.email-form[hidden] {
+	display: none;
 }
 
 .email-form {

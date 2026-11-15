@@ -31,26 +31,20 @@
 					<p class="lede">Sign in to open your machines: pick how.</p>
 					<p id="error" class="warning" hidden></p>
 
-					<!-- how to sign in: one icon each -->
+					<!-- how to sign in: a tile each -->
 					<div class="methods" role="group" aria-label="Sign in with">
-						<div class="method">
-							<a class="method-icon method-button provider" data-provider="google" href="/auth/oauth/google" title="Sign in with Google" aria-label="Sign in with Google">
-								<img src="/static/google.svg" alt="">
-							</a>
-							<span class="method-name">Google</span>
-						</div>
-						<div class="method">
-							<a class="method-icon method-button provider" data-provider="github" href="/auth/oauth/github" title="Sign in with GitHub" aria-label="Sign in with GitHub">
-								<img src="/static/github.svg" alt="">
-							</a>
-							<span class="method-name">GitHub</span>
-						</div>
-						<div class="method">
-							<button type="button" id="email-method" class="method-icon method-button" title="Sign in with your email" aria-label="Sign in with your email" aria-expanded="false" aria-controls="email-form">
-								<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4-8 5-8-5V6l8 5 8-5v2z"/></svg>
-							</button>
-							<span class="method-name">Email</span>
-						</div>
+						<a class="method" data-provider="google" href="/auth/oauth/google" title="Sign in with Google">
+							<img src="/static/google.svg" alt="">
+							<span>Google</span>
+						</a>
+						<a class="method" data-provider="github" href="/auth/oauth/github" title="Sign in with GitHub">
+							<img src="/static/github.svg" alt="">
+							<span>GitHub</span>
+						</a>
+						<button type="button" id="email-method" class="method" title="Sign in with your email and a password" aria-expanded="false" aria-controls="email-form">
+							<img src="/static/email.svg" alt="">
+							<span>Email</span>
+						</button>
 					</div>
 
 					<form id="email-form" class="email-form" novalidate hidden>
