@@ -223,13 +223,59 @@ function localizeTimes() {
 	}
 }
 
-// Forms that destroy something (Delete) ask first; the question is in data-confirm.
-function confirmForms() {
-	for (const form of document.querySelectorAll("form[data-confirm]")) {
+// A Delete form (data-delete holds the machine name) goes out only after
+// the delete dialog: the name typed in unlocks its button, and only that
+// button (or Enter on the matching name) submits the form. Cancel, Escape
+// and the backdrop all leave the machine alone.
+function confirmDeletes() {
+	const dialog = $("delete-dialog");
+	if (!dialog) {
+		return;
+	}
+	const input = $("delete-input");
+	const confirm = $("delete-confirm");
+	let pending = null;
+	const matches = () => pending !== null && input.value.trim() === pending.dataset.delete;
+	const submit = () => {
+		if (!matches()) {
+			return;
+		}
+		const form = pending;
+		pending = null;
+		dialog.close();
+		// submit() skips onsubmit, so this does not open the dialog again
+		form.submit();
+	};
+	input.oninput = () => {
+		confirm.disabled = !matches();
+	};
+	input.onkeydown = (event) => {
+		if (event.key === "Enter") {
+			event.preventDefault();
+			submit();
+		}
+	};
+	confirm.onclick = submit;
+	$("delete-cancel").onclick = () => dialog.close();
+	dialog.onclick = (event) => {
+		if (event.target === dialog) {
+			dialog.close();
+		}
+	};
+	dialog.onclose = () => {
+		pending = null;
+	};
+	for (const form of document.querySelectorAll("form[data-delete]")) {
 		form.onsubmit = (event) => {
-			if (!window.confirm(form.dataset.confirm)) {
-				event.preventDefault();
+			event.preventDefault();
+			pending = form;
+			for (const name of dialog.querySelectorAll(".delete-name")) {
+				name.textContent = form.dataset.delete;
 			}
+			input.value = "";
+			confirm.disabled = true;
+			dialog.showModal();
+			input.focus();
 		};
 	}
 }
@@ -237,7 +283,7 @@ function confirmForms() {
 function machinesPage() {
 	fillAssignments();
 	localizeTimes();
-	confirmForms();
+	confirmDeletes();
 	for (const button of document.querySelectorAll("button[data-copy]")) {
 		button.onclick = async () => {
 			await navigator.clipboard.writeText(button.dataset.copy);

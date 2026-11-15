@@ -152,6 +152,18 @@ button:disabled:hover {
 	font-size: 1.5rem;
 }
 
+.summary {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.4rem 1.25rem;
+	margin: -0.25rem 0 1rem;
+	color: var(--muted);
+}
+
+.summary strong {
+	color: var(--ink);
+}
+
 .create {
 	display: flex;
 	flex-wrap: wrap;
@@ -753,4 +765,73 @@ button:disabled {
 .verify p {
 	flex: 1 1 20rem;
 	margin: 0;
+}
+
+/* ─── the delete dialog ──────────────────────────────────────────────────── */
+
+.dialog {
+	width: min(28rem, calc(100vw - 2rem));
+	padding: 1.5rem;
+	color: var(--ink);
+	background: #fff;
+	border: 1px solid var(--line);
+	border-radius: 16px;
+	box-shadow: 0 20px 50px rgb(15 23 42 / 25%);
+}
+
+.dialog::backdrop {
+	background: rgb(15 23 42 / 45%);
+	backdrop-filter: blur(2px);
+}
+
+.dialog h2 {
+	margin: 0 0 0.75rem;
+	font-size: 1.2rem;
+	overflow-wrap: anywhere;
+}
+
+.dialog p {
+	margin: 0 0 1rem;
+	color: var(--muted);
+	line-height: 1.5;
+}
+
+.dialog label {
+	display: block;
+	margin-bottom: 0.4rem;
+	font-size: 0.9rem;
+}
+
+.dialog input {
+	box-sizing: border-box;
+	width: 100%;
+	padding: 0.55rem 0.75rem;
+	font: inherit;
+	font-family: ui-monospace, monospace;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+}
+
+.dialog input:focus {
+	outline: 2px solid var(--danger);
+	outline-offset: 1px;
+	border-color: var(--danger);
+}
+
+.dialog-actions {
+	display: flex;
+	gap: 0.5rem;
+	justify-content: flex-end;
+	margin-top: 1.25rem;
+}
+
+button.danger:not(.quiet) {
+	color: #fff;
+	background: var(--danger);
+	border-color: var(--danger);
+}
+
+button.danger:not(.quiet):hover:not(:disabled) {
+	background: #991b1b;
+	border-color: #991b1b;
 }

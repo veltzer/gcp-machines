@@ -54,6 +54,14 @@
 				</div>
 			{% endif %}
 			<h1>{% if admin %}All machines{% else %}Your machine{% endif %}</h1>
+			{% if summary %}
+				<p class="summary">
+					<span><strong>{{summary.up}}</strong> up</span>
+					<span><strong>{{summary.stopped}}</strong> stopped</span>
+					<span><strong>{{summary.total}}</strong> machine{{"" if summary.total == 1 else "s"}} in all</span>
+					<span><strong>{{summary.students_with}}</strong> of {{summary.students}} roster students have one</span>
+				</p>
+			{% endif %}
 			{% if (machines or can_create) and not admin %}
 				<p class="hint-left">
 					Create your machine when you need it, download its key, then connect
@@ -73,6 +81,11 @@
 						<button type="submit">Create my machine</button>
 					</form>
 				</div>
+			{% elif machines|length == 0 and admin %}
+				<p class="empty">
+					No machines right now. Students create their own here once they
+					sign in; each one shows up in this list.
+				</p>
 			{% elif machines|length == 0 and not unverified %}
 				<p class="empty">
 					No machine is assigned to you. Contact your instructor.
@@ -139,7 +152,7 @@
 									<button type="submit">Start</button>
 								</form>
 							{% endif %}
-							<form method="post" action="/delete" data-confirm="Delete {{machine.name}} and everything on it? This cannot be undone.">
+							<form method="post" action="/delete" data-delete="{{machine.name}}">
 								<input type="hidden" name="name" value="{{machine.name}}">
 								<input type="hidden" name="zone" value="{{machine.zone}}">
 								<button type="submit" class="quiet danger" title="Remove the machine and its files for good">Delete</button>
@@ -201,6 +214,23 @@
 					{% endfor %}
 				</div>
 			{% endif %}
+			{# asked before any Delete goes out; app.js fills in the machine and submits its form #}
+			<dialog id="delete-dialog" class="dialog" aria-labelledby="delete-title" aria-describedby="delete-text">
+				<div>
+					<h2 id="delete-title">Delete <span class="delete-name">this machine</span>?</h2>
+					<p id="delete-text">
+						This removes the machine, its disk and every file on it, for good,
+						and its key stops working. You can create a new machine afterwards,
+						but nothing on this one comes back.
+					</p>
+					<label for="delete-input">Type <strong class="delete-name">its name</strong> to confirm</label>
+					<input id="delete-input" type="text" autocomplete="off" spellcheck="false">
+					<div class="dialog-actions">
+						<button type="button" class="quiet" id="delete-cancel">Cancel</button>
+						<button type="button" class="danger" id="delete-confirm" disabled>Delete machine</button>
+					</div>
+				</div>
+			</dialog>
 		</main>
 		<footer class="footer">
 			<p>&copy; <span class="copyright-year">2026</span> Mark Veltzer &middot; <a href="https://veltzer.org">veltzer.org</a></p>

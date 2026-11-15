@@ -673,6 +673,25 @@ def test_student_without_a_machine_is_offered_one():
     assert "No machine is assigned to you" not in body
 
 
+def test_admin_sees_how_many_machines_are_up():
+    module, _fake_compute = load_app(ADMIN)
+    set_mapping(module, {"keren@gmail.com": "keren", "raz@gmail.com": "raz", "dana@gmail.com": "dana"})
+    body = signed_in_client(module).get("/").get_data(as_text=True)
+    assert "<strong>1</strong> up" in body
+    assert "<strong>2</strong> stopped" in body
+    assert "<strong>3</strong> machines in all" in body
+    assert "<strong>2</strong> of 3 roster students have one" in body
+
+
+def test_admin_without_machines_is_not_told_to_contact_the_instructor():
+    module, fake_compute = load_app(ADMIN)
+    fake_compute.instances.return_value.aggregatedList.return_value.execute.return_value = {"items": {}}
+    body = signed_in_client(module).get("/").get_data(as_text=True)
+    assert "Contact your instructor" not in body
+    assert "No machines right now" in body
+    assert "<strong>0</strong> up" in body
+
+
 def test_student_with_a_machine_or_without_assignment_is_not_offered_one():
     module, _fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
@@ -779,7 +798,8 @@ def test_delete_asks_first():
     module, _fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
     body = signed_in_client(module, "keren@gmail.com").get("/").get_data(as_text=True)
-    assert 'data-confirm="Delete machine-keren and everything on it?' in body
+    assert 'data-delete="machine-keren"' in body
+    assert 'id="delete-dialog"' in body
 
 
 def test_owner_labels_become_valid_machine_names():

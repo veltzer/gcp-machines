@@ -349,13 +349,14 @@ def root():
     auth.check_verification(user)
     machines = get_machines()
     admin = is_admin(user)
-    students = pending = owners = None
+    students = pending = owners = summary = None
     owner = owner_of(user)
     # the account's own machine is missing: offer to create it
     can_create = owner is not None and not any(m["owner"] == owner for m in machines)
     if admin:
         students, pending = students_table(machines)
         owners = sorted({m["owner"] for m in machines if m["owner"] != "unknown"})
+        summary = machines_summary(machines)
     else:
         machines = [m for m in machines if owner is not None and m["owner"] == owner]
     return flask.render_template(
@@ -370,8 +371,26 @@ def root():
         owners=owners,
         owner=owner,
         can_create=can_create,
+        summary=summary,
         hours=provision.MAX_RUN_SECONDS // 3600,
     )
+
+
+def machines_summary(machines):
+    """
+    What the admin sees above the machines: how many there are, how many
+    are up (running, or on their way up) and stopped, and how many roster
+    students have one.
+    """
+    up = {"PROVISIONING", "STAGING", "RUNNING"}
+    roster = set(email_to_owner().values())
+    return {
+        "total": len(machines),
+        "up": sum(m["status"] in up for m in machines),
+        "stopped": sum(m["status"] in {"STOPPED", "SUSPENDED"} for m in machines),
+        "students_with": len(roster & {m["owner"] for m in machines}),
+        "students": len(roster),
+    }
 
 
 def get_instance_for(user, name, zone):
