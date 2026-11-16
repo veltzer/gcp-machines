@@ -64,9 +64,7 @@
 										{% if login.email %}
 											<div class="account-login-meta">reports {{login.email}}</div>
 										{% endif %}
-										{% if login.unverified %}
-											<div class="account-login-meta">email not verified yet</div>
-										{% elif login.last %}
+										{% if login.last %}
 											<div class="account-login-meta">last used {{login.last}}</div>
 										{% endif %}
 									</div>
@@ -75,7 +73,7 @@
 						</ul>
 						<p class="account-note">
 							Signing in with Google, GitHub or a password under the same
-							verified email always reaches this same account.
+							proven email always reaches this same account.
 						</p>
 					</div>
 				</div>
@@ -95,19 +93,6 @@
 			{% for message in get_flashed_messages() %}
 				<p class="notice">{{message}}</p>
 			{% endfor %}
-			{% if unverified %}
-				<div class="verify">
-					<p>
-						To get your machine, verify your email: open the mail sent to
-						<strong>{{user.email}}</strong> (look in spam too), follow its link,
-						then press Continue on the page it opens. If that opens in another
-						browser, sign in there with your email and password.
-					</p>
-					<form method="post" action="/auth/verify/resend">
-						<button type="submit" class="quiet">Send again</button>
-					</form>
-				</div>
-			{% endif %}
 			<h1>{% if admin %}All machines{% elif limit > 1 or machines|length > 1 %}Your machines{% else %}Your machine{% endif %}</h1>
 			{% if summary %}
 				<p class="summary">
@@ -144,7 +129,7 @@
 					No machines right now. Students create their own here once they
 					sign in; each one shows up in this list.
 				</p>
-			{% elif machines|length == 0 and not unverified %}
+			{% elif machines|length == 0 %}
 				<p class="empty">
 					No machine is assigned to you. Contact your instructor.
 				</p>
@@ -223,11 +208,12 @@
 				<h2 id="students">Students</h2>
 				<p class="hint-left">
 					One row per person: signing in with Google, GitHub or a password
-					under the same verified email is the same user. A student controls
+					under the same proven email is the same user. A student controls
 					the machine whose owner label is their assignment. An assignment
 					made here wins; otherwise a user gets the one the roster lists for
-					their email. A password sign-up joins its user only once its email
-					is verified; until then it has a row of its own.
+					their email. An address that did not prove itself has no row: only
+					a Google or GitHub sign-in the provider vouches for, or a link
+					mailed to the address and followed, makes one.
 				</p>
 				<div class="students" role="table" aria-label="Students" data-owners="{{owners|join(',')}}">
 					<div class="student head" role="row">
@@ -247,16 +233,14 @@
 							<span role="cell">
 								{% if row.owner %}
 									{{row.owner}} <span class="source">{{row.source}}</span>
-								{% elif row.suggested %}
-									<span class="source">roster says {{row.suggested}} once the email is verified; Save to give it now</span>
 								{% else %}
 									<span class="source">none</span>
 								{% endif %}
 							</span>
 							<div role="cell">
 								<form method="post" action="/admin/assign" class="assign">
-									<input type="hidden" name="target" value="{{row.target}}">
-									<select name="owner" aria-label="Machine for {{row.email}}" data-selected="{{row.assigned or row.suggested}}">
+									<input type="hidden" name="email" value="{{row.email}}">
+									<select name="owner" aria-label="Machine for {{row.email}}" data-selected="{{row.assigned}}">
 										<option value="">roster / none</option>
 									</select>
 									<label class="limit" title="How many machines this student may have at once">

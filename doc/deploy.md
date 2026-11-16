@@ -33,7 +33,8 @@ file says.
 
 ## Sign-in
 
-Anyone can create an account. The sign-in page (`src/html/index.html`,
+Anyone can create an account, but only a proven email gets one. The
+sign-in page (`src/html/index.html`,
 `src/static/app.js`, the scene in `src/static/scene.svg`) follows
 gcp-myworld's and offers three ways in, one icon each; `src/auth.py` does
 the work and users and their logins live in Datastore (see
@@ -48,8 +49,9 @@ the work and users and their logins live in Datastore (see
   `/callback`. Offered only when `GITHUB_CLIENT_ID` and
   `GITHUB_CLIENT_SECRET` are set.
 - Email and password: the Email icon opens the form, which talks to
-  `POST /auth/email/register` and `POST /auth/email/login` (JSON).
-  Always available. Registering mails a verification link to the address
+  `POST /auth/email/login` (email and password) and, to get a link by mail,
+  `POST /auth/email/register` (the address only), all JSON. Always
+  available. The password is chosen on the page the mailed link leads to
   (next section).
 
 Both providers are plain redirects, so nothing of theirs runs in our
@@ -58,9 +60,13 @@ pages and the Content-Security-Policy allows only this origin.
 Each way of signing in is a login (kind `login`, keyed `google:<sub>`,
 `github:<id>`, `email:<address>`), and each person is a user (kind
 `user`, keyed by the lowercased email). A login joins the user of its
-email once that email is verified: Google's `email_verified`, GitHub's
-verified primary address, a password login's mailed link followed. So
-Google, GitHub and a password under one verified address are one user,
+email when it is made, and a login exists only for a proven email:
+Google's `email_verified`, GitHub's verified primary address, or for an
+email login the mailed link followed. A provider that does not vouch for
+the email sends the person back to the sign-in page with "<Provider> did
+not confirm an email address for you: verify one with <Provider> and sign
+in again", and nothing is stored. So Google, GitHub and a password under
+one proven address are one user,
 with one row on the Students table. A login joins once and stays, even
 if the provider's address changes later. The session cookie holds only
 the login's key.
@@ -75,29 +81,48 @@ Which machines a user sees:
 - Otherwise the user's email is looked up in the course roster (kind
   `student`, pushed by `python scripts/iap.py sync` from
   `data.gi/students.txt`).
-- An unverified password login has no user: it is never matched by email
-  and gets nothing of the user of that address, or anyone could register
-  a student's address and take over their machine. An admin may still
-  assign it a machine (stored on the login, moved to the user once the
-  login joins). Registering the same address again replaces it
-  (password, assignment and all), so a stranger cannot squat on an
-  address either; a verified one cannot be replaced.
+- Every login has a user, so there is no half-signed-in login that an
+  admin could assign a machine to: an assignment is always to a user (the
+  Students table's Save posts the user's email), and an address that has
+  not proven itself is not on the table at all.
 
 `scripts/migrate_logins.py` moved the accounts of before (one `user`
-entity per way of signing in) to this layout on 2026-11-15.
+entity per way of signing in) to this layout on 2026-11-15, and
+`scripts/migrate_verified_only.py` removes the logins that were never
+proven ("Existing accounts" below).
 
 ### Email verification
 
 Google Cloud has no general mail service; the verification mail is sent by
-Identity Platform, used for nothing else (`src/verification.py`). At
-sign-up, and on Send again (`POST /auth/verify/resend`, at most once a
-minute per address), the app creates a throwaway Identity Platform user for
-the address and has Google mail it a `VERIFY_EMAIL` link. The link opens
-Google's page on `veltzer-machines-id.firebaseapp.com`, which marks the
-address verified and offers Continue back to `machines.veltzer.org`. Each
-visit of an unverified password login asks Identity Platform whether the
-address is verified yet; once it is, the login is marked verified and
-joins the user of that address, and the throwaway user is deleted.
+Identity Platform, used for nothing else (`src/verification.py`). The
+password is never taken at sign-up, so only whoever reads the mailbox ever
+sets one for an address:
+
+1. The form's "Get a link by mail" posts the address alone to
+   `POST /auth/email/register`. The answer is the same whether or not the
+   address has an account. The app keeps a pending verification (kind
+   `email_verification`, keyed by the address) with the SHA-256 of a random
+   token and when it was sent, creates a throwaway Identity Platform user
+   for the address and has Google mail it a `VERIFY_EMAIL` link. A new link
+   voids the old one, and at most one is mailed per address per minute.
+1. The link opens Google's page on `veltzer-machines-id.firebaseapp.com`,
+   whose Continue button leads to `/verify?token=...` on
+   `machines.veltzer.org`. That page (`src/html/verify.html`) tells the
+   browser to send no referrer, removes the token from the address bar,
+   asks `POST /auth/email/verify` which address the token is for, and lets
+   its reader choose the password (at least 8 characters).
+1. `POST /auth/email/password` with the token and the password spends the
+   link (it works once, for a day), creates or replaces the
+   `email:<address>` login with the password's hash, joins it to the user
+   of that address, signs in and deletes the throwaway Identity Platform
+   user. The same flow replaces a forgotten password.
+
+Identity Platform is never asked whether the address is verified: what
+proves it is our own token coming back, which travelled only inside the
+mail. Until then the address signs in to nothing:
+`POST /auth/email/login` answers every failure with "wrong email or
+password (a new address signs in only after you open the link we mailed
+it)".
 
 All of it runs on the app's own credentials (the service account has
 `roles/identitytoolkit.admin`), no API key. Google does not let this
@@ -138,6 +163,21 @@ organization:
    `machines-github-client-secret` (`gcp_secrets` in `.gcp.conf`; the
    service gets it as `GITHUB_CLIENT_SECRET`). Done on 2026-11-15: the app
    is "Machines" (`github.com/settings/applications/4022558`).
+
+### Existing accounts
+
+Before this flow, an email and password login was made at sign-up and
+signed in before its address was proven, with no user. `python
+scripts/migrate_verified_only.py` (as the project owner, never a service
+account; dry run unless `--apply`; safe to run again) finds the logins that
+are not proven, that is an email login with `verified` false or any login
+with no user, and deletes them. It also strips the fields the old flow
+kept (`account_id`, `verification_sent`, `verification_token`,
+`verified`) from the logins that stay. An unproven login that an admin
+assigned a machine or a machine limit is never deleted: the script lists
+it (`KEEP`), changes nothing at all and exits with status 1, so an admin
+can decide (a student may have machines under it) and run it again. Run it
+after deploying: until then the old code still reads those fields.
 
 ## Machines and their keys
 
@@ -182,10 +222,8 @@ python scripts/iap.py push-roster   # email -> owner roster to Datastore
 every roster owner who has none (re-runnable); `delete` removes all
 machines and their key secrets.
 
-A Google or GitHub sign-in with a roster email sees its machine at once, a
-password account once its email is verified. Until then the Students table
-shows its roster match pre-selected, and Save gives it the machine
-without waiting.
+A user with a roster email sees its machine at once, whichever way they
+sign in, as every account has a proven email.
 
 ## Local development
 
@@ -196,8 +234,11 @@ MACHINES_DEV_LOGIN=1 python -m src.main
 Run it from the repository root. It serves on `http://localhost:8080` with
 your local credentials (so it shows the real machines and uses the real
 Datastore), and the sign-in page also offers a development login that
-signs in as any email, treated as verified. The development login is never
-available on Cloud Run.
+signs in as any email, treated as proven. The development login is never
+available on Cloud Run. There is no mail locally either: the link of "Get a
+link by mail" is written to the server log (`verification link for ...`),
+and opening it, choosing the password and signing in works as in
+production.
 
 ## Custom domain
 

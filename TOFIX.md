@@ -8,23 +8,17 @@ still-open items are carried over under "Repo hygiene").
 ### Security
 
 - **No brute-force or abuse limits** on `/auth/email/login` and
-  `/auth/email/register` (`src/auth.py:162-188`). Passwords can be guessed
+  `/auth/email/register` (`src/auth.py`). Passwords can be guessed
   without limit, and register can be used to make Google mail
   verification links to arbitrary addresses (one per address per minute,
   but unlimited addresses), which risks the project's Identity Platform
   quota and reputation. Add per-IP and per-address rate limiting (a
   Datastore counter or Cloud Armor in front of the service).
-- **Account existence leaks.** Login's "same message for both failures"
-  (`src/auth.py:180`) is undone by timing (no `check_password_hash` runs
-  when the account does not exist, so that answer comes back much faster)
-  and by register's 409 "there is already an account". Run a dummy
-  `check_password_hash` on the missing-account path; accept that register
-  reveals verified accounts or make it answer the same way and mail
-  instead.
-- **No password reset.** A verified password account that forgets its
-  password is stuck; the only way out is an admin deleting the entity by
-  hand. Add a reset flow (Identity Platform's `PASSWORD_RESET` OOB code can
-  send the mail, the same trick as verification).
+- **Account existence leaks by timing.** Login's "same message for every
+  failure" is undone by timing (no `check_password_hash` runs when the
+  account does not exist, so that answer comes back much faster). Run a
+  dummy `check_password_hash` on the missing-account path. Register
+  already answers the same whether or not the address has an account.
 - **Sessions cannot be revoked and never expire.** The cookie holds only the
   subject, signed with `SECRET_KEY`; it is valid until the key rotates.
   Set `PERMANENT_SESSION_LIFETIME` and store a per-account session

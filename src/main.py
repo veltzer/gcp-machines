@@ -89,11 +89,12 @@ def api_http():
 RESOURCE_NAME = provision.RESOURCE_NAME
 datastore_client = datastore.Client(project=project_id)
 app.config["DATASTORE"] = datastore_client
-app.config["VERIFIER"] = verification.IdentityPlatform(credentials, project_id)
+# Identity Platform mails the verification links on Cloud Run; locally they go to the log
+app.config["MAILER"] = verification.IdentityPlatform(credentials, project_id) if "K_SERVICE" in os.environ else verification.LogMailer()
 
 # Admins see and control every machine; everyone else only their own. Comma
-# separated emails, set in .gcp.conf. Only a verified email counts (a Google
-# or GitHub sign-in, or a password account whose mailed link was followed).
+# separated emails, set in .gcp.conf. Every account has a proven email (see
+# users.py), so a listed one is the admin however they sign in.
 ADMIN_EMAILS = {
     email.strip().lower()
     for email in os.environ.get("ADMIN_EMAILS", "").split(",")
@@ -125,8 +126,8 @@ def email_to_owner():
 
 
 def is_admin(user):
-    """ admins see and control all machines; only a verified email counts """
-    return user.verified and user.email.lower() in ADMIN_EMAILS
+    """ admins see and control all machines """
+    return user.email.lower() in ADMIN_EMAILS
 
 
 def assignment(user):
@@ -134,17 +135,14 @@ def assignment(user):
     The machine owner label this account may control and where that comes
     from: ("<owner>", "assigned") when an admin assigned it on the Students
     table, ("<owner>", "roster") when the user's email is in the course
-    roster, (None, None) otherwise. Only a user is matched by email: a login
-    with none yet (an unverified password login) proves nothing about the
-    address, or anyone could register a student's address and take over
-    their machine.
+    roster, (None, None) otherwise. The email is proven (see users.py), or
+    anyone could register a student's address and take over their machine.
     """
     if user.owner:
         return user.owner, "assigned"
-    if user.verified:
-        owner = email_to_owner().get(user.email.lower())
-        if owner is not None:
-            return owner, "roster"
+    owner = email_to_owner().get(user.email.lower())
+    if owner is not None:
+        return owner, "roster"
     return None, None
 
 
@@ -187,7 +185,6 @@ def describe_login(login, current, email):
         "email": "" if login.get("email", "") in (provider_id, email) else login.get("email", ""),
         "last": last.strftime("%Y-%m-%d") if last else "",
         "current": login.key.name == current,
-        "unverified": method == "email" and not login.get("verified"),
     }
 
 
@@ -195,21 +192,18 @@ def account_details(user, admin):
     """
     What the account panel under the top bar's name shows: who is signed in,
     in which role, which machine they get and why, and every way this user
-    signs in (only the one used, for a login with no user yet).
+    signs in.
     """
-    if user.user is not None:
-        query = datastore_client.query(kind=users.LOGIN)
-        query.add_filter(filter=datastore.query.PropertyFilter("user", "=", user.email))
-        logins = list(query.fetch())
-    else:
-        logins = [user.login]
+    query = datastore_client.query(kind=users.LOGIN)
+    query.add_filter(filter=datastore.query.PropertyFilter("user", "=", user.email))
+    logins = list(query.fetch())
     # the one in use first, then the others by name
     described = sorted(
         (describe_login(login, user.subject, user.email) for login in logins),
         key=lambda login: (not login["current"], login["name"]),
     )
     owner, source = assignment(user)
-    created = (user.user or user.login).get("created")
+    created = user.user.get("created")
     return {
         "name": user.name,
         "email": user.email,
@@ -223,46 +217,31 @@ def account_details(user, admin):
 
 def students_table(machines):
     """
-    Every user (with all the ways they sign in) and every login that has no
-    user yet (an unverified password login), then the roster students who
-    have not signed up: what the admin sees on the Students table. Also
+    Every user (with all the ways they sign in), then the roster students
+    who have not signed up: what the admin sees on the Students table. Also
     annotates each machine with the emails it is assigned to.
     """
-    logins = list(datastore_client.query(kind=users.LOGIN).fetch())
     methods = {}
-    for login in logins:
+    for login in datastore_client.query(kind=users.LOGIN).fetch():
         if login.get("user"):
             methods.setdefault(login["user"], []).append(login.key.name.split(":", 1)[0])
-    accounts = [users.Account(None, user) for user in datastore_client.query(kind=users.USER).fetch()]
-    accounts += [users.Account(login, None) for login in logins if not login.get("user")]
     rows = []
-    for account in accounts:
+    for user in datastore_client.query(kind=users.USER).fetch():
+        account = users.Account(None, user)
         owner, source = assignment(account)
-        if account.verified:
-            names = sorted(METHODS.get(m, m) for m in methods.get(account.email, []))
-            method = ", ".join(names) or "none"
-            suggested = ""
-        else:
-            method = METHODS.get(account.method, account.method)
-            if account.needs_verification:
-                method += " (email not verified yet)"
-            # the roster's machine for an address it cannot trust yet:
-            # offered to the admin to confirm, never given
-            suggested = "" if owner else email_to_owner().get(account.email.lower(), "")
+        names = sorted(METHODS.get(m, m) for m in methods.get(account.email, []))
         rows.append({
-            "target": account.target,
             "name": account.name,
             "email": account.email,
-            "method": method,
+            "method": ", ".join(names) or "none",
             "admin": is_admin(account),
             "owner": owner,
             "source": source,
             "assigned": account.owner or "",
-            "suggested": suggested,
             "limit": account.machine_limit,
         })
     rows.sort(key=lambda row: (row["email"], row["method"]))
-    signed_up = {row["email"].lower() for row in rows if row["target"].startswith("user:")}
+    signed_up = {row["email"].lower() for row in rows}
     pending = [
         {"email": email, "owner": owner}
         for email, owner in sorted(email_to_owner().items())
@@ -413,13 +392,18 @@ def turns_off_at(instance):
     return end.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+@app.route("/verify", methods=["GET"])
+def verify_page():
+    """ where the mailed link leads: its page asks for the password (the token is in the address, see verify.html) """
+    return flask.send_from_directory(HTML_DIR, "verify.html")
+
+
 @app.route("/", methods=["GET"])
 def root():
     """ the sign-in page, or the machines the signed-in user may control """
     user = auth.current_user()
     if user is None:
         return flask.send_from_directory(HTML_DIR, "index.html")
-    user = auth.check_verification(user)
     machines = get_machines()
     admin = is_admin(user)
     students = pending = owners = summary = None
@@ -438,7 +422,6 @@ def root():
         machines=machines,
         user=user,
         admin=admin,
-        unverified=user.needs_verification,
         sign_in=sign_in_method(user),
         has_picture=bool(picture_url(user)),
         account=account_details(user, admin),
@@ -533,13 +516,12 @@ def download_key():
 @auth.login_required
 def assign():
     """
-    Set, for a user or a login that has no user yet, which owner label its
-    machines carry (empty: the roster decides) and how many machines it may
+    Set, for a user, which owner label its machines carry (empty: the roster decides) and how many machines it may
     have at once. Admins only.
     """
     if not is_admin(auth.current_user()):
         flask.abort(403, "Only an admin may assign machines.")
-    target = flask.request.form["target"]
+    email = flask.request.form["email"]
     owner = flask.request.form["owner"]
     if owner and owner not in known_owners(get_machines()):
         flask.abort(400, "There is no student or machine with that owner.")
@@ -548,8 +530,8 @@ def assign():
         if not limit.isdigit() or int(limit) > users.MAX_MACHINE_LIMIT:
             flask.abort(400, f"The machine limit is a number from 0 to {users.MAX_MACHINE_LIMIT}.")
         limit = int(limit)
-    if not users.assign(datastore_client, target, owner, limit):
-        flask.abort(404, "There is no such account.")
+    if not users.assign(datastore_client, email, owner, limit):
+        flask.abort(404, "There is no such user.")
     return flask.redirect(flask.url_for("root", _anchor="students"))
 
 

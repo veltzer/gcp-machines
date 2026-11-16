@@ -47,22 +47,25 @@
 						</button>
 					</div>
 
+					<!-- signing in takes the password; signing up takes only the address, mailed a link to choose the password with -->
 					<form id="email-form" class="email-form" novalidate hidden>
 						<label class="field">
 							<span>Email</span>
 							<input name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
 						</label>
-						<label class="field">
+						<label id="password-row" class="field">
 							<span>Password</span>
 							<span class="password-field">
-								<input name="password" type="password" autocomplete="current-password" placeholder="••••••••" required>
+								<input name="password" type="password" autocomplete="current-password" placeholder="••••••••">
 								<button type="button" id="toggle-password" class="link">Show</button>
 							</span>
 						</label>
+						<p id="email-hint" class="hint" hidden>We will mail this address a link. Open it to choose your password: the address cannot sign in before.</p>
 						<button type="submit" id="email-submit" class="primary">Sign in</button>
+						<p id="email-sent" class="notice" role="status" hidden></p>
 						<p class="switch">
-							<span id="email-switch-text">New here?</span>
-							<button type="button" id="email-mode" class="link">Create an account</button>
+							<span id="email-switch-text">New here, or forgot your password?</span>
+							<button type="button" id="email-mode" class="link">Get a link by mail</button>
 						</p>
 					</form>
 

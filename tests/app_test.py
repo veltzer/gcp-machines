@@ -7,7 +7,7 @@ without any GCP credentials.
 
 import base64
 import contextlib
-import datetime
+import hashlib
 import importlib
 import os
 import sys
@@ -97,6 +97,9 @@ class FakeDatastore:
     def get(self, key):
         return self.entities.get((key.kind, key.name))
 
+    def delete(self, key):
+        self.entities.pop((key.kind, key.name), None)
+
     def put(self, entity):
         self.entities[(entity.key.kind, entity.key.name)] = entity
 
@@ -120,36 +123,31 @@ class FakeQuery:
         self.entities = [e for e in self.entities if e.get(filter.property_name) == filter.value]
         return self
 
-    def fetch(self):
-        return list(self.entities)
+    def fetch(self, limit=None):
+        return list(self.entities)[:limit]
 
 
-class FakeVerifier:
+class FakeMailer:
     """
-    Stands in for verification.IdentityPlatform: records the mails it was
-    asked to send, and reports an address verified once a test says its
-    link was followed.
+    Stands in for the verification mailer: keeps the links it was asked to
+    mail, (email, link) in the order sent, and the addresses it was told to
+    forget; or fails, like Identity Platform out of quota.
     """
 
     def __init__(self):
         self.sent = []
-        self.followed = set()
+        self.forgotten = []
         self.fail = False
-
-    def _fail(self, message):
-        # imported here: src is importable only after the sys.path line above
-        from src.verification import VerificationError  # pylint: disable=import-outside-toplevel
-        raise VerificationError(f"Identity Platform: {message}")
 
     def send(self, email, continue_url):
         if self.fail:
-            self._fail("QUOTA_EXCEEDED")
+            # imported here: src is importable only after the sys.path line above
+            from src.verification import VerificationError  # pylint: disable=import-outside-toplevel
+            raise VerificationError("Identity Platform: QUOTA_EXCEEDED")
         self.sent.append((email, continue_url))
 
-    def verified(self, email):
-        if self.fail:
-            self._fail("UNAVAILABLE")
-        return email in self.followed
+    def forget(self, email):
+        self.forgotten.append(email)
 
 
 def load_app(environ=None):
@@ -168,7 +166,7 @@ def load_app(environ=None):
         sys.modules.pop("src.main", None)
         module = importlib.import_module("src.main")
     module.app.config["TESTING"] = True
-    module.app.config["VERIFIER"] = FakeVerifier()
+    module.app.config["MAILER"] = FakeMailer()
     return module, fake_compute
 
 
@@ -185,31 +183,28 @@ def set_mapping(module, mapping):
     module.datastore_client.students = [FakeStudent(email, owner) for email, owner in mapping.items()]
 
 
-def add_user(module, subject, email, verified=True, owner=None):
+def add_user(module, subject, email, owner=None):
     """
     Creates a login in the fake Datastore, joined to the user of its email
-    when verified (which then holds the assignment), and returns the login.
+    (which holds the assignment), and returns the login.
     """
     login = datastore.Entity(key=FakeKey("login", subject))
-    login.update({"email": email, "name": email.split("@")[0], "picture": "", "verified": verified})
-    holder = login
-    if verified:
-        login["user"] = email
-        holder = module.datastore_client.get(FakeKey("user", email))
-        if holder is None:
-            holder = datastore.Entity(key=FakeKey("user", email))
-            holder.update({"email": email, "name": email.split("@")[0], "picture": ""})
+    login.update({"email": email, "name": email.split("@")[0], "picture": "", "user": email})
+    user = module.datastore_client.get(FakeKey("user", email))
+    if user is None:
+        user = datastore.Entity(key=FakeKey("user", email))
+        user.update({"email": email, "name": email.split("@")[0], "picture": ""})
     if owner is not None:
-        holder["owner"] = owner
-    module.datastore_client.put(holder)
+        user["owner"] = owner
+    module.datastore_client.put(user)
     module.datastore_client.put(login)
     return login
 
 
-def signed_in_client(module, email="admin@gmail.com", subject=None, verified=True, owner=None):
+def signed_in_client(module, email="admin@gmail.com", subject=None, owner=None):
     """A test client whose session belongs to a (new) account."""
     subject = subject or f"google:{email}"
-    add_user(module, subject, email, verified=verified, owner=owner)
+    add_user(module, subject, email, owner=owner)
     client = module.app.test_client()
     with client.session_transaction() as session:
         session["subject"] = subject
@@ -356,31 +351,30 @@ def test_student_without_machine_sees_none():
     assert "1.2.3.4" not in body
 
 
-def test_password_account_is_not_matched_by_email():
-    """Anyone can type a student's address into the password form: that must not reach their machine."""
+def test_an_address_typed_in_reaches_no_machine():
+    """Anyone can type a student's address into the form: that must not reach their machine."""
     module, fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
-    client = signed_in_client(module, "keren@gmail.com", subject="email:keren@gmail.com", verified=False)
-    body = client.get("/").get_data(as_text=True)
-    assert "verify your email" in body
-    assert "machine-keren" not in body
+    client = module.app.test_client()
+    assert request_link(client, "keren@gmail.com").status_code == 200
+    assert sign_in(client, "keren@gmail.com").status_code == 401
+    assert 'id="email-form"' in client.get("/").get_data(as_text=True)
+    assert not [key for key in module.datastore_client.entities if key[0] in ("login", "user")]
     instances = set_instance_status(fake_compute, "RUNNING", owner="keren")
-    response = client.post("/stop", data={"name": "machine-keren", "zone": "us-central1-a"})
-    assert response.status_code == 403
+    assert client.post("/stop", data={"name": "machine-keren", "zone": "us-central1-a"}).status_code == 302
     instances.stop.assert_not_called()
 
 
-def test_password_account_is_not_admin():
+def test_an_admin_address_typed_in_is_not_admin():
     module, _fake_compute = load_app(ADMIN)
-    client = signed_in_client(module, "admin@gmail.com", subject="email:admin@gmail.com", verified=False)
-    body = client.get("/").get_data(as_text=True)
-    assert "raz" not in body
-    assert "verify your email" in body
+    client = module.app.test_client()
+    request_link(client, "admin@gmail.com")
+    assert "All machines" not in client.get("/").get_data(as_text=True)
 
 
 def test_assigned_owner_wins_for_any_account():
     module, _fake_compute = load_app(ADMIN)
-    client = signed_in_client(module, "raz@example.com", subject="email:raz@example.com", verified=False, owner="raz")
+    client = signed_in_client(module, "raz@example.com", subject="email:raz@example.com", owner="raz")
     body = client.get("/").get_data(as_text=True)
     assert "machine-raz" in body
     assert "machine-keren" not in body
@@ -432,44 +426,149 @@ def test_student_cannot_toggle_unowned_machine():
 
 # ─── sign-in ─────────────────────────────────────────────────────────────────
 
-def test_register_then_sign_in_with_password():
+def test_email_sign_up_needs_the_mailed_link():
+    """Asking for an address gives no account and no way in: only the link's reader chooses the password."""
     module, _fake_compute = load_app(ADMIN)
     client = module.app.test_client()
-    response = client.post("/auth/email/register", json={"email": " New@Example.com ", "password": "longenough"})
-    assert response.status_code == 200
+    assert client.get("/api/config").get_json()["password_min_length"] == module.auth.PASSWORD_MIN_LENGTH
+    response = request_link(client, "  Carol@Example.com ")
+    assert "mailed a link to carol@example.com" in response.get_json()["message"]
+    assert [to for to, _ in module.app.config["MAILER"].sent] == ["carol@example.com"]
+    # nothing to sign in to yet, nor a user, and the form is no signed-in page
+    assert not [key for key in module.datastore_client.entities if key[0] in ("login", "user")]
+    assert client.get("/api/config").get_json()["signed_in"] is False
+    assert sign_in(client, "carol@example.com", "correct horse").status_code == 401
+    # the link's page says for which address, then the password is chosen
+    token = mailed_token(module, "carol@example.com")
+    assert client.get("/verify").status_code == 200
+    assert client.post("/auth/email/verify", json={"token": token}).get_json() == {"email": "carol@example.com"}
+    response = client.post("/auth/email/password", json={"token": token, "password": "correct horse"})
     assert response.get_json() == {"next": "/"}
-    stored = module.datastore_client.entities[("login", "email:new@example.com")]
-    assert stored["verified"] is False
-    assert stored["password_hash"] != "longenough"
-    assert "Signed in as new@example.com" in client.get("/").get_data(as_text=True)
+    entities = module.datastore_client.entities
+    login = entities[("login", "email:carol@example.com")]
+    assert login["user"] == "carol@example.com"
+    assert login["password_hash"] != "correct horse"
+    assert "Signed in as carol@example.com" in client.get("/").get_data(as_text=True)
+    assert module.app.config["MAILER"].forgotten == ["carol@example.com"]
+    # the link worked once, and nothing is left of it
+    assert client.post("/auth/email/password", json={"token": token, "password": "another one"}).status_code == 400
+    assert ("email_verification", "carol@example.com") not in entities
     client.post("/auth/logout")
     assert 'id="email-form"' in client.get("/").get_data(as_text=True)
-    response = client.post("/auth/email/login", json={"email": "new@example.com", "password": "longenough"})
-    assert response.status_code == 200
-    assert "Signed in as new@example.com" in client.get("/").get_data(as_text=True)
+    assert sign_in(client, "carol@example.com", "correct horse").status_code == 200
+    assert "Signed in as carol@example.com" in client.get("/").get_data(as_text=True)
 
 
-def test_register_refuses_short_password_and_duplicates():
+def test_only_the_hash_of_the_token_is_stored():
+    module, _fake_compute = load_app()
+    request_link(module.app.test_client(), "carol@example.com")
+    token = mailed_token(module, "carol@example.com")
+    pending = module.datastore_client.entities[("email_verification", "carol@example.com")]
+    assert pending["token_hash"] == hashlib.sha256(token.encode()).hexdigest()
+    assert token not in pending.values()
+
+
+def test_email_bad_input():
     module, _fake_compute = load_app()
     client = module.app.test_client()
-    response = client.post("/auth/email/register", json={"email": "a@example.com", "password": "short"})
+    for body in ({"email": "not an email"}, {}, {"email": ["carol@example.com"]}):
+        response = client.post("/auth/email/register", json=body)
+        assert response.status_code == 400
+        assert "error" in response.get_json()
+    assert client.post("/auth/email/register", data="not json").status_code == 400
+    assert not module.app.config["MAILER"].sent
+    for token in ("", "forged", None):
+        response = client.post("/auth/email/verify", json={"token": token})
+        assert response.status_code == 400
+        assert "link" in response.get_json()["error"]
+    request_link(client, "carol@example.com")
+    token = mailed_token(module, "carol@example.com")
+    response = client.post("/auth/email/password", json={"token": token, "password": "short"})
     assert response.status_code == 400
-    assert "error" in response.get_json()
-    assert client.post("/auth/email/register", json={"email": "a@example.com", "password": "longenough"}).status_code == 200
-    module.datastore_client.entities[("login", "email:a@example.com")]["verified"] = True
-    response = module.app.test_client().post("/auth/email/register", json={"email": "a@example.com", "password": "different1"})
-    assert response.status_code == 409
+    assert "8 characters" in response.get_json()["error"]
+    # a refused password does not spend the link
+    assert client.post("/auth/email/verify", json={"token": token}).status_code == 200
+    assert client.get("/api/config").get_json()["signed_in"] is False
+
+
+def test_a_new_link_voids_the_old_and_waits_a_minute():
+    module, _fake_compute = load_app()
+    client = module.app.test_client()
+    request_link(client, "carol@example.com")
+    first = mailed_token(module, "carol@example.com")
+    # asking again at once mails nothing more, and answers the same
+    assert request_link(client, "carol@example.com").status_code == 200
+    assert len(module.app.config["MAILER"].sent) == 1
+    pending = module.datastore_client.entities[("email_verification", "carol@example.com")]
+    pending["sent_at"] -= module.auth.RESEND_INTERVAL
+    request_link(client, "carol@example.com")
+    second = mailed_token(module, "carol@example.com")
+    assert second != first
+    assert client.post("/auth/email/verify", json={"token": first}).status_code == 400
+    assert client.post("/auth/email/verify", json={"token": second}).status_code == 200
+    # and a link works for a day
+    pending = module.datastore_client.entities[("email_verification", "carol@example.com")]
+    pending["sent_at"] -= module.auth.LINK_LIFETIME
+    response = client.post("/auth/email/verify", json={"token": second})
+    assert response.status_code == 400
+    assert "expired" in response.get_json()["error"]
+
+
+def test_the_answer_is_the_same_whether_or_not_the_address_has_an_account():
+    module, _fake_compute = load_app(ADMIN)
+    add_user(module, "email:keren@gmail.com", "keren@gmail.com")
+    known = request_link(module.app.test_client(), "keren@gmail.com")
+    unknown = request_link(module.app.test_client(), "nobody@example.com")
+    assert known.status_code == unknown.status_code == 200
+    assert known.get_json()["message"].replace("keren@gmail.com", "X") == unknown.get_json()["message"].replace("nobody@example.com", "X")
+
+
+def test_a_mail_that_cannot_be_sent_is_said_and_leaves_nothing():
+    module, _fake_compute = load_app()
+    module.app.config["MAILER"].fail = True
+    response = request_link(module.app.test_client(), "carol@example.com")
+    assert response.status_code == 503
+    assert "could not be sent" in response.get_json()["error"]
+    assert ("email_verification", "carol@example.com") not in module.datastore_client.entities
 
 
 def test_password_login_failures_look_the_same():
     module, _fake_compute = load_app()
     client = module.app.test_client()
-    client.post("/auth/email/register", json={"email": "a@example.com", "password": "longenough"})
+    register(module, client, "a@example.com")
     client.post("/auth/logout")
-    wrong_password = client.post("/auth/email/login", json={"email": "a@example.com", "password": "wrongwrong"})
-    no_account = client.post("/auth/email/login", json={"email": "b@example.com", "password": "wrongwrong"})
+    wrong_password = sign_in(client, "a@example.com", "wrongwrong")
+    no_account = sign_in(client, "b@example.com", "wrongwrong")
     assert wrong_password.status_code == no_account.status_code == 401
     assert wrong_password.get_json() == no_account.get_json()
+    assert wrong_password.get_json()["error"] == "wrong email or password (a new address signs in only after you open the link we mailed it)"
+    # a login of another way, with no password, answers the same
+    add_user(module, "google:1", "c@example.com")
+    assert sign_in(client, "c@example.com", "wrongwrong").get_json() == no_account.get_json()
+
+
+def test_a_forgotten_password_is_replaced_by_mail():
+    """Asking for a link for an address with a login answers the same, and the link sets a new password."""
+    module, _fake_compute = load_app()
+    client = module.app.test_client()
+    register(module, client, password="old password")
+    client.post("/auth/logout")
+    # the first link is spent, so nothing paces the next one
+    register(module, client, password="new password")
+    client.post("/auth/logout")
+    assert sign_in(client, password="old password").status_code == 401
+    assert sign_in(client, password="new password").status_code == 200
+
+
+def test_the_link_page_is_served_and_keeps_its_token_to_itself():
+    module, _fake_compute = load_app()
+    response = module.app.test_client().get("/verify?token=abc")
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert '<meta name="referrer" content="no-referrer">' in body
+    assert 'data-page="verify"' in body
+    assert 'id="password-form"' in body
+    assert "Content-Security-Policy" in response.headers
 
 
 GOOGLE = {"GOOGLE_CLIENT_ID": "client-id", "GOOGLE_CLIENT_SECRET": "client-secret"}
@@ -492,20 +591,25 @@ def test_google_sign_in_is_one_redirect_and_checks_the_state():
     assert client.get("/auth/oauth/google/callback?state=x&code=c").status_code == 404
 
 
-def test_google_sign_in_creates_a_verified_account():
+def test_google_sign_in_creates_an_account():
     module, _fake_compute = load_app({**ADMIN, **GOOGLE})
     client = module.app.test_client()
     google_sign_in(module, client, "123", "Admin@gmail.com")
     stored = module.datastore_client.entities[("login", "google:123")]
-    assert stored["verified"] is True
     assert stored["email"] == "admin@gmail.com"
     assert "badge" in client.get("/").get_data(as_text=True)
 
 
-def test_google_email_google_did_not_verify_has_no_user():
+def test_google_email_google_did_not_verify_is_refused():
     module, _fake_compute = load_app({**ADMIN, **GOOGLE})
-    google_sign_in(module, module.app.test_client(), "9", "keren@gmail.com", verified=False)
-    assert "user" not in module.datastore_client.entities[("login", "google:9")]
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    client = module.app.test_client()
+    response = google_sign_in(module, client, "9", "keren@gmail.com", verified=False)
+    assert urllib.parse.unquote_plus(response.location) == (
+        "/?error=Google did not confirm an email address for you: verify one with Google and sign in again")
+    # nothing is stored, and nobody is signed in
+    assert not [key for key in module.datastore_client.entities if key[0] in ("login", "user")]
+    assert 'id="email-form"' in client.get("/").get_data(as_text=True)
 
 
 def test_sign_in_page_offers_three_icons():
@@ -531,8 +635,10 @@ def google_sign_in(_module, client, sub, email, verified=True):
     claims = {"sub": sub, "email": email, "email_verified": verified, "name": email.split("@")[0], "picture": ""}
     with unittest.mock.patch("src.auth.exchange_code", return_value={"id_token": "signed"}), \
             unittest.mock.patch("src.auth.verify_google_token", return_value=claims) as verify:
-        assert client.get(f"/auth/login?state={state}&code=c").status_code == 302
+        response = client.get(f"/auth/login?state={state}&code=c")
+        assert response.status_code == 302
     verify.assert_called_once_with("signed")
+    return response
 
 
 def github_sign_in(client, github_id, email):
@@ -543,7 +649,9 @@ def github_sign_in(client, github_id, email):
     identity = (f"github:{github_id}", email, "Name", "", bool(email))
     with unittest.mock.patch("src.auth.exchange_code", return_value={"access_token": "token"}), \
             unittest.mock.patch("src.auth.fetch_identity", return_value=identity):
-        assert client.get(f"/auth/oauth/github/callback?state={state}&code=c").status_code == 302
+        response = client.get(f"/auth/oauth/github/callback?state={state}&code=c")
+        assert response.status_code == 302
+    return response
 
 
 def test_google_and_github_with_the_same_email_are_one_user():
@@ -564,7 +672,7 @@ def test_an_assignment_holds_for_every_way_the_user_signs_in():
     google = module.app.test_client()
     google_sign_in(module, google, "g1", "keren@gmail.com")
     admin = signed_in_client(module)
-    assert admin.post("/admin/assign", data={"target": "user:keren@gmail.com", "owner": "raz"}).status_code == 302
+    assert admin.post("/admin/assign", data={"email": "keren@gmail.com", "owner": "raz"}).status_code == 302
     github = module.app.test_client()
     github_sign_in(github, 77, "keren@gmail.com")
     for client in (google, github):
@@ -573,45 +681,26 @@ def test_an_assignment_holds_for_every_way_the_user_signs_in():
         assert "machine-keren" not in body
 
 
-def test_an_unverified_password_sign_up_does_not_join_the_user():
-    module, _fake_compute = load_app(ADMIN)
+def test_asking_for_a_link_does_not_touch_the_user_of_the_address():
+    module, fake_compute = load_app(ADMIN)
     add_user(module, "google:g1", "dana@proton.me", owner="raz")
     squatter = module.app.test_client()
-    register(squatter)
-    assert "user" not in module.datastore_client.entities[("login", "email:dana@proton.me")]
-    body = squatter.get("/").get_data(as_text=True)
-    assert "machine-raz" not in body
-    assert "verify your email" in body
-    instances = set_instance_status(_fake_compute, "TERMINATED", owner="raz")
-    assert squatter.post("/start", data={"name": "machine-raz", "zone": "us-central1-a"}).status_code == 403
+    request_link(squatter, "dana@proton.me")
+    assert ("login", "email:dana@proton.me") not in module.datastore_client.entities
+    assert 'id="email-form"' in squatter.get("/").get_data(as_text=True)
+    instances = set_instance_status(fake_compute, "TERMINATED", owner="raz")
+    assert squatter.post("/start", data={"name": "machine-raz", "zone": "us-central1-a"}).status_code == 302
     instances.start.assert_not_called()
 
 
-def test_a_verified_password_login_joins_the_user_of_its_email():
+def test_a_mailed_address_joins_the_user_of_its_email():
     module, _fake_compute = load_app(ADMIN)
     add_user(module, "google:g1", "dana@proton.me", owner="raz")
     client = module.app.test_client()
-    register(client)
-    follow_link(module, client)
-    body = client.get("/").get_data(as_text=True)
-    assert "Your email is verified." in body
-    assert "machine-raz" in body
+    register(module, client)
+    assert "machine-raz" in client.get("/").get_data(as_text=True)
     assert module.datastore_client.entities[("login", "email:dana@proton.me")]["user"] == "dana@proton.me"
-
-
-def test_an_assignment_on_an_unverified_login_moves_to_its_user_on_joining():
-    module, _fake_compute = load_app(ADMIN)
-    client = module.app.test_client()
-    register(client)
-    admin = signed_in_client(module)
-    assert admin.post("/admin/assign", data={"target": "login:email:dana@proton.me", "owner": "raz"}).status_code == 302
-    follow_link(module, client)
-    client.get("/")
-    entities = module.datastore_client.entities
-    assert entities[("user", "dana@proton.me")]["owner"] == "raz"
-    assert "owner" not in entities[("login", "email:dana@proton.me")]
-    # an assignment goes to the user now, not to the login
-    assert admin.post("/admin/assign", data={"target": "login:email:dana@proton.me", "owner": ""}).status_code == 404
+    assert [name for kind, name in module.datastore_client.entities if kind == "user"] == ["dana@proton.me"]
 
 
 def test_a_login_stays_with_its_user_when_the_provider_email_changes():
@@ -624,13 +713,15 @@ def test_a_login_stays_with_its_user_when_the_provider_email_changes():
     assert ("user", "keren@work.example") not in module.datastore_client.entities
 
 
-def test_github_without_a_verified_email_has_no_user():
+def test_github_without_a_verified_email_is_refused():
     module, _fake_compute = load_app({**ADMIN, **GITHUB})
     set_mapping(module, {"keren@gmail.com": "keren"})
     client = module.app.test_client()
-    github_sign_in(client, 77, "")
-    assert "user" not in module.datastore_client.entities[("login", "github:77")]
-    assert "No machine is assigned to you" in client.get("/").get_data(as_text=True)
+    response = github_sign_in(client, 77, "")
+    assert urllib.parse.unquote_plus(response.location) == (
+        "/?error=GitHub did not confirm an email address for you: verify one with GitHub and sign in again")
+    assert not [key for key in module.datastore_client.entities if key[0] in ("login", "user")]
+    assert 'id="email-form"' in client.get("/").get_data(as_text=True)
 
 
 def test_account_panel_lists_every_way_the_user_signs_in():
@@ -653,14 +744,6 @@ def test_account_panel_lists_every_way_the_user_signs_in():
     assert body.count("this session") == 1
     assert "keren (from the roster)" in body
     assert "<dd>Student</dd>" in body
-
-
-def test_account_panel_of_an_unverified_password_login():
-    module, _fake_compute = load_app(ADMIN)
-    body = signed_in_client(module, "dana@proton.me", subject="email:dana@proton.me", verified=False).get("/").get_data(as_text=True)
-    assert "Your way to sign in" in body
-    assert "email not verified yet" in body
-    assert "<dd>none</dd>" in body
 
 
 def test_the_top_bar_shows_the_users_name():
@@ -709,11 +792,16 @@ def test_a_name_must_be_sensible():
     assert f'maxlength="{module.users.NAME_MAX_LENGTH}"' in client.get("/").get_data(as_text=True)
 
 
-def test_an_unverified_login_keeps_its_name_on_itself():
+def test_a_login_without_a_user_is_nobody():
+    """An unproven login (the old kind) signs in to nothing, whatever its session says."""
     module, _fake_compute = load_app(ADMIN)
-    client = signed_in_client(module, "dana@proton.me", subject="email:dana@proton.me", verified=False)
-    client.post("/account/name", data={"name": "Dana"})
-    assert module.datastore_client.entities[("login", "email:dana@proton.me")]["name"] == "Dana"
+    login = datastore.Entity(key=FakeKey("login", "email:dana@proton.me"))
+    login.update({"email": "dana@proton.me", "name": "dana", "picture": ""})
+    module.datastore_client.put(login)
+    client = module.app.test_client()
+    with client.session_transaction() as session:
+        session["subject"] = "email:dana@proton.me"
+    assert 'id="email-form"' in client.get("/").get_data(as_text=True)
 
 
 def test_dev_login_only_when_enabled_and_never_on_cloud_run():
@@ -758,7 +846,7 @@ def test_admin_sees_who_has_which_machine():
     module, _fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren", "raz@gmail.com": "raz"})
     add_user(module, "google:keren", "keren@gmail.com")
-    add_user(module, "email:dana@example.com", "dana@example.com", verified=False)
+    add_user(module, "email:dana@example.com", "dana@example.com")
     body = signed_in_client(module).get("/").get_data(as_text=True)
     assert 'id="students"' in body
     # machine cards name their students; the unlabeled one is unassigned
@@ -782,13 +870,13 @@ def test_student_does_not_see_other_students():
     assert "machine-raz" not in body
 
 
-def test_admin_assigns_a_machine_to_a_password_account():
+def test_admin_assigns_a_machine_to_a_user():
     module, fake_compute = load_app(ADMIN)
-    add_user(module, "email:dana@example.com", "dana@example.com", verified=False)
+    add_user(module, "email:dana@example.com", "dana@example.com")
     admin = signed_in_client(module)
-    response = admin.post("/admin/assign", data={"target": "login:email:dana@example.com", "owner": "raz"})
+    response = admin.post("/admin/assign", data={"email": "dana@example.com", "owner": "raz"})
     assert response.status_code == 302
-    assert module.datastore_client.entities[("login", "email:dana@example.com")]["owner"] == "raz"
+    assert module.datastore_client.entities[("user", "dana@example.com")]["owner"] == "raz"
     dana = module.app.test_client()
     with dana.session_transaction() as session:
         session["subject"] = "email:dana@example.com"
@@ -800,8 +888,8 @@ def test_admin_assigns_a_machine_to_a_password_account():
     assert "Starting machine machine-raz" in response.get_data(as_text=True)
     instances.start.assert_called_once()
     # clearing it takes the machine away again
-    admin.post("/admin/assign", data={"target": "login:email:dana@example.com", "owner": ""})
-    assert "owner" not in module.datastore_client.entities[("login", "email:dana@example.com")]
+    admin.post("/admin/assign", data={"email": "dana@example.com", "owner": ""})
+    assert "owner" not in module.datastore_client.entities[("user", "dana@example.com")]
     assert "machine-raz" not in dana.get("/").get_data(as_text=True)
 
 
@@ -816,22 +904,23 @@ def test_assignment_wins_over_the_roster():
 
 def test_only_admins_assign():
     module, _fake_compute = load_app(ADMIN)
-    add_user(module, "email:dana@example.com", "dana@example.com", verified=False)
     student = signed_in_client(module, "keren@gmail.com")
-    response = student.post("/admin/assign", data={"target": "user:keren@gmail.com", "owner": "raz"})
+    response = student.post("/admin/assign", data={"email": "keren@gmail.com", "owner": "raz"})
     assert response.status_code == 403
     assert "owner" not in module.datastore_client.entities[("user", "keren@gmail.com")]
-    anonymous = module.app.test_client().post("/admin/assign", data={"target": "login:email:dana@example.com", "owner": "raz"})
+    anonymous = module.app.test_client().post("/admin/assign", data={"email": "keren@gmail.com", "owner": "raz"})
     assert anonymous.status_code == 302
-    assert "owner" not in module.datastore_client.entities[("login", "email:dana@example.com")]
+    assert "owner" not in module.datastore_client.entities[("user", "keren@gmail.com")]
 
 
-def test_assign_refuses_unknown_machines_and_accounts():
+def test_assign_refuses_unknown_machines_and_users():
     module, _fake_compute = load_app(ADMIN)
-    add_user(module, "email:dana@example.com", "dana@example.com", verified=False)
+    add_user(module, "email:dana@example.com", "dana@example.com")
     admin = signed_in_client(module)
-    assert admin.post("/admin/assign", data={"target": "login:email:dana@example.com", "owner": "nobody"}).status_code == 400
-    assert admin.post("/admin/assign", data={"target": "login:email:ghost@example.com", "owner": "raz"}).status_code == 404
+    assert admin.post("/admin/assign", data={"email": "dana@example.com", "owner": "nobody"}).status_code == 400
+    assert admin.post("/admin/assign", data={"email": "ghost@example.com", "owner": "raz"}).status_code == 404
+    # a login is not a user to assign to
+    assert admin.post("/admin/assign", data={"email": "email:dana@example.com", "owner": "raz"}).status_code == 404
 
 
 # ─── machine keys ────────────────────────────────────────────────────────────
@@ -1010,7 +1099,7 @@ def test_a_student_with_a_higher_limit_creates_another_machine():
     set_quota(fake_compute, free_cpus=8)
     student = signed_in_client(module, "keren@gmail.com")
     admin = signed_in_client(module)
-    assert admin.post("/admin/assign", data={"target": "user:keren@gmail.com", "owner": "", "limit": "3"}).status_code == 302
+    assert admin.post("/admin/assign", data={"email": "keren@gmail.com", "owner": "", "limit": "3"}).status_code == 302
     body = student.get("/").get_data(as_text=True)
     assert "Your machines" in body
     assert "You have 1 of the 3 machines you may have." in body
@@ -1047,14 +1136,14 @@ def test_admin_sets_and_clears_the_machine_limit():
     add_user(module, "google:keren", "keren@gmail.com")
     admin = signed_in_client(module)
     user = module.datastore_client.entities[("user", "keren@gmail.com")]
-    admin.post("/admin/assign", data={"target": "user:keren@gmail.com", "owner": "", "limit": "4"})
+    admin.post("/admin/assign", data={"email": "keren@gmail.com", "owner": "", "limit": "4"})
     assert user["machine_limit"] == 4
     assert 'value="4" aria-label="Machine limit for keren@gmail.com"' in admin.get("/").get_data(as_text=True)
     # back to the default: stored as no limit at all
-    admin.post("/admin/assign", data={"target": "user:keren@gmail.com", "owner": "", "limit": "1"})
+    admin.post("/admin/assign", data={"email": "keren@gmail.com", "owner": "", "limit": "1"})
     assert "machine_limit" not in user
     for bad in ("-1", "11", "two"):
-        response = admin.post("/admin/assign", data={"target": "user:keren@gmail.com", "owner": "", "limit": bad})
+        response = admin.post("/admin/assign", data={"email": "keren@gmail.com", "owner": "", "limit": bad})
         assert response.status_code == 400
 
 
@@ -1063,20 +1152,8 @@ def test_admin_may_assign_a_roster_owner_that_has_no_machine_yet():
     set_mapping(module, {"dana@gmail.com": "dana"})
     add_user(module, "google:keren", "keren@gmail.com")
     admin = signed_in_client(module)
-    assert admin.post("/admin/assign", data={"target": "user:keren@gmail.com", "owner": "dana"}).status_code == 302
+    assert admin.post("/admin/assign", data={"email": "keren@gmail.com", "owner": "dana"}).status_code == 302
     assert module.datastore_client.entities[("user", "keren@gmail.com")]["owner"] == "dana"
-
-
-def test_a_machine_limit_on_an_unverified_login_moves_to_its_user():
-    module, _fake_compute = load_app(ADMIN)
-    client = module.app.test_client()
-    register(client)
-    admin = signed_in_client(module)
-    admin.post("/admin/assign", data={"target": "login:email:dana@proton.me", "owner": "", "limit": "2"})
-    follow_link(module, client)
-    client.get("/")
-    assert module.datastore_client.entities[("user", "dana@proton.me")]["machine_limit"] == 2
-    assert "machine_limit" not in module.datastore_client.entities[("login", "email:dana@proton.me")]
 
 
 def test_a_racing_second_create_does_not_replace_the_key():
@@ -1136,202 +1213,31 @@ def test_owner_labels_become_valid_machine_names():
     assert module.provision.instance_name("x" * 60, 1) is None
 
 
-def test_roster_match_of_a_password_account_is_suggested_not_given():
-    module, _fake_compute = load_app(ADMIN)
-    set_mapping(module, {"dana@proton.me": "raz"})
-    add_user(module, "email:dana@proton.me", "dana@proton.me", verified=False)
-    body = signed_in_client(module).get("/").get_data(as_text=True)
-    assert "roster says raz once the email is verified; Save to give it now" in body
-    assert "Password (email not verified yet)" in body
-    assert 'data-selected="raz"' in body
-    dana = module.app.test_client()
-    with dana.session_transaction() as session:
-        session["subject"] = "email:dana@proton.me"
-    body = dana.get("/").get_data(as_text=True)
-    assert "verify your email" in body
-    assert "machine-raz" not in body
+# ─── email sign-in helpers ───────────────────────────────────────────────────
+
+def request_link(client, email="dana@proton.me"):
+    """ asks for a link by mail, giving the address only """
+    return client.post("/auth/email/register", json={"email": email})
 
 
-# ─── email verification ─────────────────────────────────────────────────────
+def mailed_token(module, email):
+    """ the token of the last link mailed to email """
+    link = [link for to, link in module.app.config["MAILER"].sent if to == email][-1]
+    assert link.startswith("http://localhost/verify?token=")
+    return link.split("token=")[1]
 
-def register(client, email="dana@proton.me", password="longenough"):
-    return client.post("/auth/email/register", json={"email": email, "password": password})
+
+def register(module, client, email="dana@proton.me", password="longenough"):
+    """ asks for a link, follows it, chooses the password: signed in """
+    request_link(client, email)
+    token = mailed_token(module, email.strip().lower())
+    response = client.post("/auth/email/password", json={"token": token, "password": password})
+    assert response.status_code == 200
+    return response
 
 
 def sign_in(client, email="dana@proton.me", password="longenough"):
     return client.post("/auth/email/login", json={"email": email, "password": password})
-
-
-def follow_link(module, client, email="dana@proton.me"):
-    """
-    The owner of the address follows the last link mailed to it, on Google's
-    page, then presses Continue in the browser of the given client.
-    """
-    verifier = module.app.config["VERIFIER"]
-    url = [url for to, url in verifier.sent if to == email][-1]
-    verifier.followed.add(email)
-    return client.get(url.removeprefix("http://localhost"))
-
-
-def test_register_mails_a_verification_link():
-    module, _fake_compute = load_app()
-    client = module.app.test_client()
-    assert register(client).status_code == 200
-    [(to, url)] = module.app.config["VERIFIER"].sent
-    assert to == "dana@proton.me"
-    token = module.datastore_client.entities[("login", "email:dana@proton.me")]["verification_token"]
-    assert url == f"http://localhost/auth/verify/confirm?token={token}"
-    body = client.get("/").get_data(as_text=True)
-    assert "We mailed a verification link to dana@proton.me." in body
-    assert "Send again" in body
-
-
-def test_verified_password_account_gets_its_roster_machine():
-    module, _fake_compute = load_app()
-    set_mapping(module, {"dana@proton.me": "raz"})
-    client = module.app.test_client()
-    register(client)
-    assert "machine-raz" not in client.get("/").get_data(as_text=True)
-    assert follow_link(module, client).status_code == 302
-    body = client.get("/").get_data(as_text=True)
-    assert "Your email is verified." in body
-    assert "machine-raz" in body
-    assert "Send again" not in body
-    assert module.datastore_client.entities[("login", "email:dana@proton.me")]["verified"] is True
-
-
-def test_verified_password_account_can_be_admin():
-    module, _fake_compute = load_app(ADMIN)
-    client = module.app.test_client()
-    register(client, "admin@gmail.com")
-    follow_link(module, client, "admin@gmail.com")
-    assert "All machines" in client.get("/").get_data(as_text=True)
-
-
-def test_resend_is_paced():
-    module, _fake_compute = load_app()
-    client = module.app.test_client()
-    register(client)
-    client.get("/")
-    response = client.post("/auth/verify/resend")
-    assert response.status_code == 302
-    assert "less than a minute ago" in client.get("/").get_data(as_text=True)
-    assert len(module.app.config["VERIFIER"].sent) == 1
-    entity = module.datastore_client.entities[("login", "email:dana@proton.me")]
-    entity["verification_sent"] -= datetime.timedelta(minutes=2)
-    client.post("/auth/verify/resend")
-    assert len(module.app.config["VERIFIER"].sent) == 2
-
-
-def test_resend_only_for_unverified_password_accounts():
-    module, _fake_compute = load_app()
-    assert module.app.test_client().post("/auth/verify/resend").status_code == 302
-    client = signed_in_client(module, "keren@gmail.com")
-    client.post("/auth/verify/resend")
-    assert module.app.config["VERIFIER"].sent == []
-
-
-def test_failed_mail_still_creates_the_account():
-    module, _fake_compute = load_app()
-    module.app.config["VERIFIER"].fail = True
-    client = module.app.test_client()
-    assert register(client).status_code == 200
-    body = client.get("/").get_data(as_text=True)
-    assert "could not be sent" in body
-    assert "Signed in as dana@proton.me" in body
-    assert "verification_sent" not in module.datastore_client.entities[("login", "email:dana@proton.me")]
-
-
-def test_registering_again_replaces_an_unverified_account():
-    """An unverified account proves nothing, so it cannot keep an address (or an assignment) from its owner."""
-    module, _fake_compute = load_app()
-    register(module.app.test_client(), password="squatter1")
-    module.datastore_client.entities[("login", "email:dana@proton.me")]["owner"] = "raz"
-    client = module.app.test_client()
-    assert register(client, password="realowner").status_code == 200
-    stored = module.datastore_client.entities[("login", "email:dana@proton.me")]
-    assert "owner" not in stored
-    # the second registration came within the minute: no second mail, the first link still serves
-    assert len(module.app.config["VERIFIER"].sent) == 1
-    client.post("/auth/logout")
-    assert client.post("/auth/email/login", json={"email": "dana@proton.me", "password": "squatter1"}).status_code == 401
-    assert client.post("/auth/email/login", json={"email": "dana@proton.me", "password": "realowner"}).status_code == 200
-
-
-def test_failed_verification_check_counts_as_not_yet():
-    module, _fake_compute = load_app()
-    client = module.app.test_client()
-    register(client)
-    module.app.config["VERIFIER"].fail = True
-    follow_link(module, client)
-    assert "verify your email" in client.get("/").get_data(as_text=True)
-    assert module.datastore_client.entities[("login", "email:dana@proton.me")]["verified"] is False
-
-
-def test_followed_link_alone_does_not_verify():
-    """Google saying the address was verified is not enough without the link's secret in the session."""
-    module, _fake_compute = load_app()
-    client = module.app.test_client()
-    register(client)
-    module.app.config["VERIFIER"].followed.add("dana@proton.me")
-    assert "verify your email" in client.get("/").get_data(as_text=True)
-    client.get("/auth/verify/confirm?token=guessed")
-    assert "verify your email" in client.get("/").get_data(as_text=True)
-
-
-def test_squatter_cannot_get_verified_by_the_owner_clicking():
-    """
-    Someone registers a student's address; the student gets Google's genuine
-    mail and follows it. That must not verify the squatter's account.
-    """
-    module, _fake_compute = load_app(ADMIN)
-    set_mapping(module, {"dana@proton.me": "raz"})
-    squatter = module.app.test_client()
-    register(squatter, password="squatter1")
-    owner = module.app.test_client()
-    response = follow_link(module, owner)
-    assert response.status_code == 302
-    assert "error=Sign+in+with+your+email+and+password" in response.location
-    # the owner does not know the squatter's password, so cannot finish it
-    assert sign_in(owner, password="realowner").status_code == 401
-    body = squatter.get("/").get_data(as_text=True)
-    assert "verify your email" in body
-    assert "machine-raz" not in body
-    assert module.datastore_client.entities[("login", "email:dana@proton.me")]["verified"] is False
-
-
-def test_link_followed_in_another_browser_counts_after_signing_in_there():
-    module, _fake_compute = load_app()
-    set_mapping(module, {"dana@proton.me": "raz"})
-    register(module.app.test_client())
-    phone = module.app.test_client()
-    follow_link(module, phone)
-    assert sign_in(phone).status_code == 200
-    body = phone.get("/").get_data(as_text=True)
-    assert "Your email is verified." in body
-    assert "machine-raz" in body
-
-
-def test_replacing_an_unverified_account_signs_out_its_sessions():
-    """
-    A student registers; before they follow the link someone registers the
-    address again. The student's session must not now belong to the
-    squatter's account, or following the link would verify it.
-    """
-    module, _fake_compute = load_app()
-    student = module.app.test_client()
-    register(student, password="realowner")
-    assert "Signed in as dana@proton.me" in student.get("/").get_data(as_text=True)
-    squatter = module.app.test_client()
-    register(squatter, password="squatter1")
-    assert follow_link(module, student).status_code == 302
-    assert "Signed in as" not in student.get("/").get_data(as_text=True)
-    assert module.datastore_client.entities[("login", "email:dana@proton.me")]["verified"] is False
-    # registering again takes the address back, and the mail already in hand still serves
-    register(student, password="realowner")
-    assert "Your email is verified." in student.get("/").get_data(as_text=True)
-    assert "verify your email" not in squatter.get("/").get_data(as_text=True)
-    assert sign_in(squatter, password="squatter1").status_code == 401
 
 
 def test_version_reports_deploy_stamp_and_revision():

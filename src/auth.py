@@ -13,10 +13,21 @@ From GitHub it yields an access token, with which the server asks GitHub
 who signed in. A provider is offered only when its client id and secret are
 set in the environment.
 
-Email accounts live entirely in Datastore, with werkzeug password hashes.
-Their address counts as verified once the student follows the link that
-Identity Platform mails at sign-up (see verification.py), in a browser
-signed in to that account (see check_verification).
+Only a proven email gets an account: one the provider vouches for (Google's
+email_verified, GitHub's verified primary address), or for email sign-in one
+whose mailed link was followed. A provider that does not vouch for the email
+sends the person back to the sign-in page with an error, and nothing is
+stored. An address merely typed into a form proves nothing and can be used
+for nothing.
+
+Email sign-up asks for the address only and mails it a link (Identity
+Platform sends it, see verification.py); the link leads to /verify, where
+its reader chooses the password, which makes the email login with its
+werkzeug password hash. So only whoever reads the mailbox ever sets a
+password for the address: had sign-up taken one, anyone could register
+someone's address with a password of their own and get in once its owner
+clicked the link. Asking again for an address that has a login mails a link
+the same way, which is how a forgotten password is replaced.
 
 Whichever way was used, the signed Flask session cookie then holds only the
 login's subject (its Datastore key name); the login leads to its user, the
@@ -26,6 +37,7 @@ person, who is the same whichever way they signed in (see users.py).
 import dataclasses
 import datetime
 import functools
+import hashlib
 import hmac
 import logging
 import os
@@ -46,8 +58,11 @@ bp = flask.Blueprint("auth", __name__, url_prefix="/auth")
 
 PASSWORD_MIN_LENGTH = 8
 HTTP_TIMEOUT = 10
-# the least time between two verification mails to the same address
-RESEND_INTERVAL = datetime.timedelta(seconds=60)
+# how long a mailed link works, and how soon another may be mailed to the same address
+LINK_LIFETIME = datetime.timedelta(days=1)
+RESEND_INTERVAL = datetime.timedelta(minutes=1)
+# what the sign-in page says when the provider does not vouch for the email
+UNVERIFIED = "{provider} did not confirm an email address for you: verify one with {provider} and sign in again"
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +95,9 @@ def configure(app):
     app.register_blueprint(bp)
 
 
-def verifier():
-    """ what sends and checks verification mails (verification.IdentityPlatform) """
-    return flask.current_app.config["VERIFIER"]
+def mailer():
+    """ what mails the verification links (verification.IdentityPlatform on Cloud Run, LogMailer locally) """
+    return flask.current_app.config["MAILER"]
 
 
 def dev_login_enabled():
@@ -93,28 +108,13 @@ def current_user():
     """ the signed-in users.Account, or None """
     if "user" not in flask.g:
         subject = flask.session.get("subject")
-        account = None if subject is None else users.load(datastore_client(), subject)
-        # a session of a password login that was replaced since no longer counts
-        login = None if account is None else account.login
-        if login is not None and login.get("account_id") and login["account_id"] != flask.session.get("account_id"):
-            account = None
-        flask.g.user = account
+        flask.g.user = None if subject is None else users.load(datastore_client(), subject)
     return flask.g.user
 
 
-# the session key holding the secret of a followed verification link
-VERIFY_TOKEN = "verify_token"
-
-
 def start_session(account):
-    # a verification link followed before signing in still counts after
-    pending = flask.session.get(VERIFY_TOKEN)
     flask.session.clear()
-    if pending:
-        flask.session[VERIFY_TOKEN] = pending
     flask.session["subject"] = account.subject
-    if account.login.get("account_id"):
-        flask.session["account_id"] = account.login["account_id"]
     flask.g.user = account
 
 
@@ -154,124 +154,109 @@ def google_callback():
 
 # ─── email and password ──────────────────────────────────────────────────────
 
-def _email_credentials():
-    """ the (email, password) pair from the JSON body, validated for shape only """
+def _body():
     body = flask.request.get_json(silent=True)
     if not isinstance(body, dict):
         flask.abort(400, "expected a JSON object")
+    return body
+
+
+def _email(body):
+    """ the address in the body, validated for shape only """
     email = body.get("email")
-    password = body.get("password")
-    if not isinstance(email, str) or not isinstance(password, str):
-        flask.abort(400, "email and password are required")
+    if not isinstance(email, str):
+        flask.abort(400, "an email address is required")
     email = email.strip().lower()
-    if "@" not in email or email.startswith("@") or email.endswith("@") or " " in email:
+    if "@" not in email or email.startswith("@") or email.endswith("@") or " " in email or len(email) > 320:
         flask.abort(400, "that does not look like an email address")
-    return email, password
+    return email
+
+
+def _token_hash(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _pending(token):
+    """ the verification a link's token belongs to, while the link still works; else 400 """
+    if not isinstance(token, str) or not token:
+        flask.abort(400, "this link is not complete: open the one in the mail")
+    pending = users.find_verification(datastore_client(), _token_hash(token))
+    if pending is None or users.now() - pending["sent_at"] > LINK_LIFETIME:
+        flask.abort(400, "this link was used or has expired: ask for a new one")
+    return pending
 
 
 @bp.route("/email/register", methods=["POST"])
 def email_register():
-    email, password = _email_credentials()
-    if len(password) < PASSWORD_MIN_LENGTH:
+    """
+    Mail the address a link to choose a password with. The answer is the
+    same whether or not the address has an account, so the form does not
+    reveal who signs in here.
+    """
+    email = _email(_body())
+    sent = f"We mailed a link to {email}. Open it to choose your password; until then the address cannot sign in."
+    pending = users.get_verification(datastore_client(), email)
+    if pending is not None and users.now() - pending["sent_at"] < RESEND_INTERVAL:
+        return flask.jsonify({"message": sent})
+    # The secret rides in the link's continue URL, so only the mailbox learns it
+    token = secrets.token_urlsafe(32)
+    try:
+        mailer().send(email, _external_url("verify_page", token=token))
+    except (VerificationError, requests.RequestException, ValueError) as error:
+        logger.warning("verification mail to %s failed: %s", email, error)
+        flask.abort(503, "the mail could not be sent: try again in a minute")
+    # a new link voids the one mailed before
+    users.save_verification(datastore_client(), email, _token_hash(token))
+    return flask.jsonify({"message": sent})
+
+
+@bp.route("/email/verify", methods=["POST"])
+def email_verify():
+    """ which address a link is for, so its page can say so before asking for the password """
+    return flask.jsonify({"email": _pending(_body().get("token")).key.name})
+
+
+@bp.route("/email/password", methods=["POST"])
+def email_password():
+    """
+    The link's reader chooses the password: the address is proven, so this
+    makes (or gives a new password to) its email login, which joins the
+    account of the address, and signs in.
+    """
+    body = _body()
+    pending = _pending(body.get("token"))
+    password = body.get("password")
+    if not isinstance(password, str) or len(password) < PASSWORD_MIN_LENGTH:
         flask.abort(400, f"use at least {PASSWORD_MIN_LENGTH} characters for the password")
-    account = users.create_password_account(datastore_client(), email, generate_password_hash(password))
-    if account is None:
-        flask.abort(409, "there is already an account with this email, sign in instead")
+    email = pending.key.name
+    # a link works once: of two requests with it only one gets here
+    if not users.use_verification(datastore_client(), email, _token_hash(body["token"])):
+        flask.abort(400, "this link was used or has expired: ask for a new one")
+    account = users.sign_in(
+        datastore_client(), f"email:{email}", email, email.split("@")[0], "", verified=True,
+        password_hash=generate_password_hash(password),
+    )
+    try:
+        mailer().forget(email)
+    except (VerificationError, requests.RequestException, ValueError) as error:
+        logger.warning("could not clean up after verifying %s: %s", email, error)
     start_session(account)
-    send_verification(account.login)
     return flask.jsonify({"next": flask.url_for("root")})
 
 
 @bp.route("/email/login", methods=["POST"])
 def email_login():
-    email, password = _email_credentials()
+    body = _body()
+    email = _email(body)
+    password = body.get("password")
     account = users.load(datastore_client(), f"email:{email}")
-    # one message for both failures, so the form does not reveal which emails have accounts
+    # one message for every failure, so the form does not reveal which emails have accounts
     hashed = None if account is None else account.login.get("password_hash")
-    if not hashed or not check_password_hash(hashed, password):
-        flask.abort(401, "wrong email or password")
+    if not hashed or not isinstance(password, str) or not check_password_hash(hashed, password):
+        flask.abort(401, "wrong email or password (a new address signs in only after you open the link we mailed it)")
     users.touch(datastore_client(), account.login, account.user)
     start_session(account)
     return flask.jsonify({"next": flask.url_for("root")})
-
-
-# ─── verifying the email of a password account ──────────────────────────────
-
-def send_verification(entity):
-    """ mail a password login's address a verification link, and say so on the next page """
-    sent = entity.get("verification_sent")
-    if sent is not None and users.now() - sent < RESEND_INTERVAL:
-        flask.flash("A link was mailed less than a minute ago. Wait a little before asking for another.")
-        return
-    # The secret rides in the link's continue URL, so only the mailbox learns it
-    token = secrets.token_urlsafe(32)
-    try:
-        verifier().send(entity["email"], _external_url("auth.verify_confirm", token=token))
-    except (VerificationError, requests.RequestException, ValueError) as error:
-        logger.warning("verification mail to %s failed: %s", entity["email"], error)
-        flask.flash("The verification mail could not be sent. Try Send again in a minute.")
-        return
-    users.mark_verification_sent(datastore_client(), entity, token)
-    flask.flash(f"We mailed a verification link to {entity['email']}.")
-
-
-def check_verification(user):
-    """
-    Whether a password login's address was verified by now, marking it so
-    (which joins it to that address's user) when it was. Asked on each
-    visit until it is; a failed check counts as not yet. Returns the
-    account as it is now.
-
-    Identity Platform only knows that someone followed the link mailed to
-    the address, not for which account: anyone can register any address,
-    and the mail Google then sends the address's owner is genuine. So an
-    account is verified only when the session asking also carries the
-    secret from that mail's continue URL (put there by verify_confirm),
-    proving the browser that followed the link is signed in to this very
-    account, password and all. Otherwise registering a student's address
-    and waiting for them to click would take over their machine.
-    """
-    if not user.needs_verification:
-        return user
-    login = user.login
-    token = flask.session.get(VERIFY_TOKEN, "")
-    expected = login.get("verification_token", "")
-    if not token or not expected or not hmac.compare_digest(token, expected):
-        return user
-    try:
-        verified = verifier().verified(login["email"])
-    except (VerificationError, requests.RequestException, ValueError) as error:
-        logger.warning("verification check of %s failed: %s", login["email"], error)
-        return user
-    if verified:
-        flask.g.user = users.Account(login, users.mark_verified(datastore_client(), login))
-        flask.session.pop(VERIFY_TOKEN, None)
-        flask.flash("Your email is verified.")
-    return flask.g.user
-
-
-@bp.route("/verify/confirm", methods=["GET"])
-def verify_confirm():
-    """
-    Where the Continue button of Google's verification page leads. Keeps the
-    link's secret in the session; the account is checked (check_verification)
-    once this browser is signed in to it, now or after signing in.
-    """
-    token = flask.request.args.get("token", "")
-    if token:
-        flask.session[VERIFY_TOKEN] = token
-    if current_user() is None:
-        return _back_with_error("Sign in with your email and password to finish verifying your email.")
-    return flask.redirect(flask.url_for("root"))
-
-
-@bp.route("/verify/resend", methods=["POST"])
-@login_required
-def resend_verification():
-    user = current_user()
-    if user.needs_verification:
-        send_verification(user.login)
-    return flask.redirect(flask.url_for("root"))
 
 
 # ─── other providers (oauth 2.0 authorization code) ─────────────────────────
@@ -437,7 +422,10 @@ def finish_oauth(oauth):
         subject, email, name, picture, verified = fetch_identity(oauth, tokens)
     except (OAuthError, requests.RequestException, ValueError, KeyError):
         return _back_with_error(f"{oauth.name} sign-in failed, try again")
-    account = users.upsert_from_provider(datastore_client(), subject, email, name, picture, verified=verified)
+    try:
+        account = users.sign_in(datastore_client(), subject, email, name, picture, verified=verified)
+    except users.UnverifiedEmailError:
+        return _back_with_error(UNVERIFIED.format(provider=oauth.name))
     start_session(account)
     return flask.redirect(flask.url_for("root"))
 
@@ -451,8 +439,8 @@ def dev_login():
     email = flask.request.form.get("email", "").strip().lower()
     if not email:
         flask.abort(400, "email is required")
-    # verified, so the admin list and the roster can be tried out locally
-    account = users.upsert_from_provider(datastore_client(), f"dev:{email}", email, email.split("@")[0], "", verified=True)
+    # local only: the address typed is taken as proven, so the admin list and the roster can be tried out
+    account = users.sign_in(datastore_client(), f"dev:{email}", email, email.split("@")[0], "", verified=True)
     start_session(account)
     return flask.redirect(flask.url_for("root"))
 

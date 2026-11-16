@@ -6,36 +6,34 @@ provider-qualified subject, the stable identity the provider vouches for:
 
     google:<sub>      Sign in with Google (the ID token "sub" claim)
     github:<id>       Continue with GitHub (the numeric GitHub user id)
-    email:<address>   email and password, registered here
+    email:<address>   email and password, the address proven by a mailed link
     dev:<address>     the local development login (never on Cloud Run)
 
 A user (kind "user", key name = the lowercased email) is the person: the
-same person signing in with Google, GitHub or a password is one user, and
+same person signing in with Google, GitHub or an email is one user, and
 what belongs to them (an admin's machine assignment) lives on the user.
 
-A login joins the user of its email once that email is proven to be the
-person's, and never before: Google's email_verified, GitHub's verified
-primary address, or for a password login the mailed link followed (see
-verification.py). An address typed into the password form proves nothing,
-so an unverified password login stays on its own, owning nothing of the
-user's; otherwise anyone could register a student's address and walk into
-their account. A login joins once and stays: should the provider's address
-change later, the login keeps its user rather than moving to another.
+A login exists only for an email that is proven to be the person's: Google's
+email_verified, GitHub's verified primary address, or for an email login the
+mailed link followed (see verification.py). So every login has a user, the
+user of its email, which it joins when it is made. A provider that does not
+vouch for the email gets no login and no user at all (UnverifiedEmailError).
+An address merely typed into a form proves nothing and can be used for
+nothing: otherwise anyone could register a student's address and walk into
+their account. An email login's password is chosen only on the page the
+mailed link leads to, so only whoever reads the mailbox ever sets it. A login
+joins once and stays: should the provider's address change later, the login
+keeps its user rather than moving to another.
 
-Login fields: email (as the provider last reported it), name, picture,
-verified, user (the key name of its user; absent until it joins one),
-owner and machine_limit (only on a login that has not joined a user: what
-an admin set for it; both move to the user on joining), created,
-last_login, and for password logins only:
+Login fields: email (as the provider last reported it), name, picture, user
+(the key name of its user), created, last_login, and for email logins only
+password_hash (the werkzeug hash of the password).
 
-    password_hash        werkzeug hash of the password
-    account_id           random, new each time the login is (re)created;
-                         a session counts only while it carries the same
-                         one, so replacing an unverified login signs out
-                         whoever was signed in to the old one
-    verification_sent    when the last verification mail went out
-    verification_token   the secret in that mail's link; see
-                         auth.check_verification
+A pending verification (kind "email_verification", key name = the address)
+is a link mailed to an address that has not been followed yet: token_hash
+(the SHA-256 of the link's secret, which is only in the mail) and sent_at.
+There is at most one per address, a new link replaces it, and following the
+link deletes it.
 
 User fields: email, name, picture, owner (the machine owner label an admin
 assigned, absent until then), machine_limit (how many machines the user may
@@ -44,40 +42,40 @@ have at once, absent for DEFAULT_MACHINE_LIMIT), created, last_login.
 
 import dataclasses
 import datetime
-import secrets
 
 from google.cloud import datastore
 
 LOGIN = "login"
 USER = "user"
+VERIFICATION = "email_verification"
 
 # how many machines a user may have at once unless an admin set otherwise,
 # and the most an admin may allow
 DEFAULT_MACHINE_LIMIT = 1
 MAX_MACHINE_LIMIT = 10
 
-# what an admin sets, kept on the user (or on a login with no user yet)
-ASSIGNED = ("owner", "machine_limit")
-
 # never indexed: nobody queries by them, and an index on the hash would be a
 # second copy of it
-UNINDEXED = ("password_hash", "picture", "account_id", "verification_token")
+UNINDEXED = ("password_hash", "picture")
 
 
 def now():
     return datetime.datetime.now(datetime.UTC)
 
 
+class UnverifiedEmailError(Exception):
+    """ the provider does not vouch for the person's email, so they get no account """
+
+
 @dataclasses.dataclass(frozen=True)
 class Account:
     """
-    Who is signed in: the login they used and the user it belongs to, or
-    None while it belongs to none (an unverified password login). The
+    Who is signed in: the login they used and the user it belongs to. The
     Students table also makes one of a user alone, with no login.
     """
 
     login: datastore.Entity | None
-    user: datastore.Entity | None
+    user: datastore.Entity
 
     @property
     def subject(self):
@@ -90,16 +88,12 @@ class Account:
 
     @property
     def email(self):
-        if self.user is not None:
-            return self.user.key.name
-        return self.login.get("email", "") if self.login is not None else ""
+        return self.user.key.name
 
     @property
     def name(self):
         """ what to call this person: the name they set or a provider gave, else their email's local part """
-        entity = self.user if self.user is not None else self.login
-        name = entity.get("name") if entity is not None else ""
-        return name or self.email.split("@")[0]
+        return self.user.get("name") or self.email.split("@")[0]
 
     @property
     def picture(self):
@@ -110,31 +104,15 @@ class Account:
         return ""
 
     @property
-    def verified(self):
-        """ whether the email is proven to be this person's: exactly when the login has a user """
-        return self.user is not None
-
-    @property
     def owner(self):
         """ the machine owner label an admin assigned, or None """
-        entity = self.user if self.user is not None else self.login
-        return entity.get("owner") if entity is not None else None
+        return self.user.get("owner")
 
     @property
     def machine_limit(self):
         """ how many machines this account may have at once """
-        entity = self.user if self.user is not None else self.login
-        limit = entity.get("machine_limit") if entity is not None else None
+        limit = self.user.get("machine_limit")
         return DEFAULT_MACHINE_LIMIT if limit is None else limit
-
-    @property
-    def target(self):
-        """ what an admin's assignment is stored on (see set_owner) """
-        return f"user:{self.email}" if self.user is not None else f"login:{self.subject}"
-
-    @property
-    def needs_verification(self):
-        return self.login is not None and self.method == "email" and not self.login.get("verified")
 
 
 def get_login(client, subject):
@@ -148,20 +126,18 @@ def get_user(client, email):
 
 
 def load(client, subject):
-    """ the Account signed in with subject, or None when there is no such login """
+    """ the Account signed in with subject, or None when there is no such login or it has no user """
     login = get_login(client, subject)
-    if login is None:
+    if login is None or not login.get("user"):
         return None
-    user = get_user(client, login["user"]) if login.get("user") else None
-    return Account(login, user)
+    user = get_user(client, login["user"])
+    return None if user is None else Account(login, user)
 
 
 def join(client, login):
     """
-    Attach a login whose email is verified to the user of that email,
-    creating the user on first sight. What an admin set on the login (its
-    assignment, its machine limit) moves to the user, except what the user
-    has set already. Returns the user entity.
+    Attach a login whose email is proven to the user of that email,
+    creating the user on first sight. Returns the user entity.
     """
     email = login["email"]
     with client.transaction():
@@ -172,23 +148,23 @@ def join(client, login):
         user["name"] = user.get("name") or login.get("name", "")
         user["picture"] = user.get("picture") or login.get("picture", "")
         user["last_login"] = now()
-        for field in ASSIGNED:
-            value = login.pop(field, None)
-            if value is not None and user.get(field) is None:
-                user[field] = value
         login["user"] = email
         client.put(user)
         client.put(login)
     return user
 
 
-def upsert_from_provider(client, subject, email, name, picture, verified):
+def sign_in(client, subject, email, name, picture, verified, password_hash=None):
     """
-    Find or create the login of a third-party sign-in, refresh the profile
-    fields the provider owns, and join it to its user when its email is
-    verified and it has none yet. Returns the Account.
+    Find or create the login of a sign-in, refresh the profile fields the
+    provider owns (and the password hash of an email login, when given),
+    and join it to its user when it has none yet. Only a proven email is
+    accepted (verified): otherwise UnverifiedEmailError, and nothing is
+    stored. Returns the Account.
     """
     email = email.strip().lower()
+    if not verified or not email:
+        raise UnverifiedEmailError(subject)
     with client.transaction():
         login = get_login(client, subject)
         if login is None:
@@ -197,7 +173,8 @@ def upsert_from_provider(client, subject, email, name, picture, verified):
         login["email"] = email
         login["name"] = name
         login["picture"] = picture
-        login["verified"] = verified
+        if password_hash is not None:
+            login["password_hash"] = password_hash
         login["last_login"] = now()
         client.put(login)
     if login.get("user"):
@@ -205,98 +182,72 @@ def upsert_from_provider(client, subject, email, name, picture, verified):
         if user is not None:
             touch(client, login, user)
             return Account(login, user)
-    if verified and email:
-        return Account(login, join(client, login))
-    return Account(login, None)
+    return Account(login, join(client, login))
 
 
-def create_password_account(client, email, password_hash):
-    """
-    Register an email and password login. Returns the new Account, or None
-    when the address already has a verified password login.
-
-    An unverified one is replaced: it proves nothing about who owns the
-    address, so it must not keep the address from its owner, who may also
-    simply have forgotten the password before verifying. Nothing of it
-    carries over, an admin's assignment included, except the pace of the
-    mails and the secret of the last one. Keeping that secret is safe: it is
-    only in the mailbox, and it verifies only a session that also knows the
-    new password (see auth.check_verification). It lets the address's owner
-    use the mail they already have. An unverified login never joined a
-    user, so replacing it takes nothing from anyone.
-    """
-    subject = f"email:{email}"
-    with client.transaction():
-        existing = get_login(client, subject)
-        if existing is not None and existing.get("verified"):
-            return None
-        login = datastore.Entity(key=client.key(LOGIN, subject), exclude_from_indexes=UNINDEXED)
-        login.update({
-            "email": email,
-            "name": email.split("@")[0],
-            "picture": "",
-            "verified": False,
-            "password_hash": password_hash,
-            "account_id": secrets.token_hex(16),
-            "created": now(),
-            "last_login": now(),
-        })
-        if existing is not None:
-            for field in ("verification_sent", "verification_token"):
-                if field in existing:
-                    login[field] = existing[field]
-        client.put(login)
-    return Account(login, None)
-
-
-def touch(client, login, user=None):
+def touch(client, login, user):
     """ record a sign-in """
     login["last_login"] = now()
     client.put(login)
-    if user is not None:
-        user["last_login"] = now()
-        client.put(user)
+    user["last_login"] = now()
+    client.put(user)
 
 
-def mark_verification_sent(client, login, token):
-    """ record when the verification mail went out (which paces resending) and its link's secret """
-    login["verification_sent"] = now()
-    login["verification_token"] = token
-    client.put(login)
+def get_verification(client, email):
+    """ the link mailed to an address that has not been followed yet, or None """
+    return client.get(client.key(VERIFICATION, email))
 
 
-def mark_verified(client, login):
-    """ the password login's email was shown to be its owner's: it joins that email's user """
-    login["verified"] = True
-    login.pop("verification_sent", None)
-    login.pop("verification_token", None)
-    return join(client, login)
+def find_verification(client, token_hash):
+    """ the pending verification a link's token (by its SHA-256) belongs to, or None """
+    query = client.query(kind=VERIFICATION)
+    query.add_filter(filter=datastore.query.PropertyFilter("token_hash", "=", token_hash))
+    found = list(query.fetch(limit=1))
+    return found[0] if found else None
 
 
-def assign(client, target, owner, machine_limit=None):
+def save_verification(client, email, token_hash):
+    """ record that a link was just mailed to the address, voiding the one mailed before """
+    pending = datastore.Entity(key=client.key(VERIFICATION, email), exclude_from_indexes=("sent_at",))
+    pending.update({"token_hash": token_hash, "sent_at": now()})
+    client.put(pending)
+
+
+def use_verification(client, email, token_hash):
     """
-    Set what an admin decides for "user:<email>" or "login:<subject>" (a
-    login with no user yet): the machine owner label (empty clears it, so
-    the roster decides) and, when given, the machine limit (the default
-    clears it). Returns False when there is no such user or user-less login.
+    Spend the link: delete the pending verification of the address if it is
+    still the one of this token. Returns whether it was, so of two requests
+    with one link only one gets through.
     """
-    kind, _, name = target.partition(":")
-    if kind not in (USER, LOGIN) or not name:
-        return False
     with client.transaction():
-        entity = client.get(client.key(kind, name))
-        if entity is None or (kind == LOGIN and entity.get("user")):
+        pending = get_verification(client, email)
+        if pending is None or pending.get("token_hash") != token_hash:
+            return False
+        client.delete(pending.key)
+    return True
+
+
+def assign(client, email, owner, machine_limit=None):
+    """
+    Set what an admin decides for the user of an email: the machine owner
+    label (empty clears it, so the roster decides) and, when given, the
+    machine limit (the default clears it). Returns False when there is no
+    such user.
+    """
+    with client.transaction():
+        user = get_user(client, email)
+        if user is None:
             return False
         if owner:
-            entity["owner"] = owner
+            user["owner"] = owner
         else:
-            entity.pop("owner", None)
+            user.pop("owner", None)
         if machine_limit is not None:
             if machine_limit == DEFAULT_MACHINE_LIMIT:
-                entity.pop("machine_limit", None)
+                user.pop("machine_limit", None)
             else:
-                entity["machine_limit"] = machine_limit
-        client.put(entity)
+                user["machine_limit"] = machine_limit
+        client.put(user)
     return True
 
 
@@ -305,7 +256,6 @@ NAME_MAX_LENGTH = 60
 
 
 def set_name(client, account, name):
-    """ the name a person chose, kept on their user (or on their login while it has none) """
-    entity = account.user if account.user is not None else account.login
-    entity["name"] = name
-    client.put(entity)
+    """ the name a person chose, kept on their user """
+    account.user["name"] = name
+    client.put(account.user)

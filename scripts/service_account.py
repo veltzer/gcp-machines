@@ -40,8 +40,8 @@ ROLES = [
     # deletes the ssh key secret of each machine a student creates or
     # deletes in the app (src/provision.py)
     "roles/secretmanager.admin",
-    # creates, checks and deletes the Identity Platform users that carry
-    # the verification mail of password accounts (src/verification.py)
+    # creates and deletes the Identity Platform users that carry the
+    # verification mail of email sign-in (src/verification.py)
     "roles/identitytoolkit.admin",
 ]
 

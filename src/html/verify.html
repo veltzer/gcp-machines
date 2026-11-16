@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<!-- the address holds the mailed token until app.js takes it out: send it nowhere -->
+		<meta name="referrer" content="no-referrer">
+		<title>Choose Password · Machines</title>
+		<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+		<link rel="stylesheet" href="/static/style.css">
+		<script src="/static/app.js" defer></script>
+	</head>
+	<body data-page="verify" class="landing">
+		<div class="landing-grid">
+			<aside class="scene">
+				<img class="scene-art" src="/static/scene.svg" alt="">
+				<div class="scene-copy">
+					<p class="scene-kicker">Linux · Virtualization · Cloud labs</p>
+					<h2>Your own machine in the cloud, one click away.</h2>
+					<p>
+						Create it when class begins, stop it when you are done,
+						and pick up where you left off: your files are kept.
+					</p>
+				</div>
+			</aside>
+			<main class="panel">
+				<div class="card">
+					<a class="brand brand-lg" href="/">
+						<img class="brand-mark" src="/static/favicon.svg" alt="">
+						Machines
+					</a>
+					<h1>Choose your password</h1>
+					<p class="lede">Your email <strong id="verify-email"></strong> is verified. Choose the password you will sign in with.</p>
+					<p id="error" class="warning" hidden></p>
+					<p id="verify-again" class="switch" hidden><a href="/">Back to sign in</a>, and ask for a new link there.</p>
+
+					<form id="password-form" class="email-form" novalidate hidden>
+						<!-- for password managers: whose password this is -->
+						<input name="email" type="email" autocomplete="username" hidden>
+						<label class="field">
+							<span>Password</span>
+							<span class="password-field">
+								<input name="password" type="password" autocomplete="new-password" placeholder="••••••••" required>
+								<button type="button" id="toggle-password" class="link">Show</button>
+							</span>
+						</label>
+						<button type="submit" id="password-submit" class="primary">Save and sign in</button>
+					</form>
+				</div>
+				<footer class="footer">
+					<p>&copy; <span class="copyright-year">2026</span> Mark Veltzer &middot; <a href="https://veltzer.org">veltzer.org</a></p>
+					<p class="inscription">Machines is a system written by Mark Veltzer &lt;<a href="mailto:mark.veltzer@gmail.com">mark.veltzer@gmail.com</a>&gt;</p>
+					<p class="inscription" id="build"></p>
+				</footer>
+			</main>
+		</div>
+	</body>
+</html>
