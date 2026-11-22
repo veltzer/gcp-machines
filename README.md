@@ -5,7 +5,7 @@
 
 description: The machines project in GAE
 
-project website: https://veltzer.github.io/gcp-machines
+project website: <https://veltzer.github.io/gcp-machines>
 
 author: Mark Veltzer
 
