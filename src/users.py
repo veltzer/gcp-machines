@@ -59,6 +59,13 @@ MAX_MACHINE_LIMIT = 10
 UNINDEXED = ("password_hash", "picture")
 
 
+def key_name(entity):
+    """ the name of a stored entity's key; an entity read from Datastore always has one """
+    if entity.key is None:
+        raise ValueError("entity has no key")
+    return entity.key.name
+
+
 def now():
     return datetime.datetime.now(datetime.UTC)
 
@@ -79,7 +86,7 @@ class Account:
 
     @property
     def subject(self):
-        return self.login.key.name if self.login is not None else ""
+        return key_name(self.login) if self.login is not None else ""
 
     @property
     def method(self):
@@ -88,7 +95,7 @@ class Account:
 
     @property
     def email(self):
-        return self.user.key.name
+        return key_name(self.user)
 
     @property
     def name(self):

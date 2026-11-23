@@ -11,6 +11,7 @@ import os
 import socket
 import sys
 import time
+import typing
 
 import google.auth
 from googleapiclient import discovery
@@ -42,9 +43,9 @@ def read_students():
             "out of the public repository."
         )
     students = []
-    with open(STUDENTS_FILE, "r", encoding="utf-8") as stream:
-        for line in stream:
-            line = line.strip()
+    with open(STUDENTS_FILE, encoding="utf-8") as stream:
+        for raw_line in stream:
+            line = raw_line.strip()
             if not line or line.startswith("#"):
                 continue
             parts = line.split()
@@ -95,7 +96,7 @@ def require_default_account(credentials):
             "GOOGLE_APPLICATION_CREDENTIALS / open a fresh shell), then re-run."
         )
 
-def get_compute_client():
+def get_compute_client() -> typing.Any:
     """Initializes and returns a Compute Engine API client."""
     credentials, _ = google.auth.default()
     return discovery.build("compute", "v1", credentials=credentials)
@@ -204,7 +205,7 @@ def wait_for_operation_quiet(project_id, compute, zone, op_name):
             return
         time.sleep(1)
 
-def get_secrets_client():
+def get_secrets_client() -> typing.Any:
     """Initializes and returns a Secret Manager API client."""
     credentials, _ = google.auth.default()
     return discovery.build("secretmanager", "v1", credentials=credentials)
@@ -393,8 +394,7 @@ def machine_limits(project_id, compute):
     request = compute.zones().list(project=project_id)
     while request is not None:
         response = request.execute()
-        for zone in response.get("items", []):
-            zone_names.append(zone["name"])
+        zone_names.extend(zone["name"] for zone in response.get("items", []))
         request = compute.zones().list_next(previous_request=request, previous_response=response)
 
     rows = []
@@ -433,7 +433,7 @@ def create_command(args, project_id, compute):
     per student are made by the students themselves in the web app, up to
     the limit an admin set them there.
     """
-    with open(SSH_KEY_FILE, "r", encoding="utf-8") as f:
+    with open(SSH_KEY_FILE, encoding="utf-8") as f:
         ssh_key = f.read().strip()
     owners = [owner for owner, _email in read_students()]
 
@@ -512,7 +512,7 @@ def admin_key_command(_args, project_id, compute):
     creates in the web app carry only their own key; this is what lets
     connect and tunnel reach them too. Other project-wide keys are kept.
     """
-    with open(SSH_KEY_FILE, "r", encoding="utf-8") as f:
+    with open(SSH_KEY_FILE, encoding="utf-8") as f:
         line = f"{DEFAULT_USER}:{f.read().strip()}"
     metadata = compute.projects().get(project=project_id).execute().get("commonInstanceMetadata", {})
     items = metadata.get("items", [])
@@ -670,11 +670,7 @@ def connect_command(args, project_id, compute):
     ssh.
     """
     ip = owner_ip(project_id, compute, args.owner)
-    command = [
-        "ssh",
-        "-i", ssh_key_path(args.key),
-        f"{args.user}@{ip}",
-    ] + strip_separator(args.ssh_args)
+    command = ["ssh", "-i", ssh_key_path(args.key), f"{args.user}@{ip}", *strip_separator(args.ssh_args)]
     print(f"Connecting to {args.owner} at {ip}...", file=sys.stderr)
     os.execvp(command[0], command)
 
@@ -750,32 +746,32 @@ def main():
 
     # List command
     list_parser = subparsers.add_parser("list", help="List students and public IPs of all VM instances.")
-    list_parser.set_defaults(func=lambda args, proj, comp: print_machines_table(list_machines(proj, comp)))
+    list_parser.set_defaults(func=lambda _args, proj, comp: print_machines_table(list_machines(proj, comp)))
 
     # Machine-limits command
     limits_parser = subparsers.add_parser(
         "machine-limits",
         help="Show how many machines can be created in each allowed zone.",
     )
-    limits_parser.set_defaults(func=lambda args, proj, comp: machine_limits(proj, comp))
+    limits_parser.set_defaults(func=lambda _args, proj, comp: machine_limits(proj, comp))
 
     # List-regions command
     regions_parser = subparsers.add_parser(
         "list-regions",
         help="List all available GCP regions.",
     )
-    regions_parser.set_defaults(func=lambda args, proj, comp: list_regions(proj, comp))
+    regions_parser.set_defaults(func=lambda _args, proj, comp: list_regions(proj, comp))
 
     # List-full command
     list_full_parser = subparsers.add_parser("list-json", help="List full JSON info about all VM instances.")
-    list_full_parser.set_defaults(func=lambda args, proj, comp: json.dump(list_machines_full(proj, comp), fp=sys.stdout))
+    list_full_parser.set_defaults(func=lambda _args, proj, comp: json.dump(list_machines_full(proj, comp), fp=sys.stdout))
 
     # Show-input-sample command
     sample_parser = subparsers.add_parser(
         "show-input-sample",
         help="Show a fake 10-line sample of the input expected by create.",
     )
-    sample_parser.set_defaults(func=lambda args, proj, comp: show_input_sample())
+    sample_parser.set_defaults(func=lambda _args, _proj, _comp: show_input_sample())
 
     # Create command
     create_parser = subparsers.add_parser("create", help="Create a VM for every student in the file who has none.")
@@ -792,12 +788,12 @@ def main():
     # Stop-all command
     stop_parser = subparsers.add_parser("stop", help="Stop all running VM instances.")
     add_wait_flag(stop_parser)
-    stop_parser.set_defaults(func=lambda args, proj, comp: stop_all_machines(proj, comp, args.wait_mode))
+    stop_parser.set_defaults(func=lambda _args, proj, comp: stop_all_machines(proj, comp, args.wait_mode))
 
     # Continue-all command
     continue_parser = subparsers.add_parser("continue", help="Continue (start) all stopped VM instances.")
     add_wait_flag(continue_parser)
-    continue_parser.set_defaults(func=lambda args, proj, comp: continue_all_machines(proj, comp, args.wait_mode))
+    continue_parser.set_defaults(func=lambda _args, proj, comp: continue_all_machines(proj, comp, args.wait_mode))
 
     # Set-limit command
     set_limit_parser = subparsers.add_parser(
@@ -805,12 +801,12 @@ def main():
         help=f"Make every stopped VM turn itself off {MAX_RUN_SECONDS // 3600}h after each start.",
     )
     add_wait_flag(set_limit_parser)
-    set_limit_parser.set_defaults(func=lambda args, proj, comp: set_limit_all_machines(proj, comp, args.wait_mode))
+    set_limit_parser.set_defaults(func=lambda _args, proj, comp: set_limit_all_machines(proj, comp, args.wait_mode))
 
     # Delete-all command
     delete_parser = subparsers.add_parser("delete", help="Delete all VM instances.")
     add_wait_flag(delete_parser)
-    delete_parser.set_defaults(func=lambda args, proj, comp: delete_all_machines(proj, comp, args.wait_mode))
+    delete_parser.set_defaults(func=lambda _args, proj, comp: delete_all_machines(proj, comp, args.wait_mode))
 
     # Connect command
     connect_parser = subparsers.add_parser(

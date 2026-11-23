@@ -118,9 +118,10 @@ class FakeQuery:
     def __init__(self, entities):
         self.entities = entities
 
-    def add_filter(self, filter):  # named as the real client names it
-        assert filter.operator == "="
-        self.entities = [e for e in self.entities if e.get(filter.property_name) == filter.value]
+    def add_filter(self, **kwargs):  # the real client is called with the keyword filter=
+        flt = kwargs["filter"]
+        assert flt.operator == "="
+        self.entities = [e for e in self.entities if e.get(flt.property_name) == flt.value]
         return self
 
     def fetch(self, limit=None):
@@ -141,9 +142,9 @@ class FakeMailer:
 
     def send(self, email, continue_url):
         if self.fail:
-            # imported here: src is importable only after the sys.path line above
-            from src.verification import VerificationError  # pylint: disable=import-outside-toplevel
-            raise VerificationError("Identity Platform: QUOTA_EXCEEDED")
+            # src is importable only after the sys.path line above
+            verification_error = importlib.import_module("src.verification").VerificationError
+            raise verification_error("Identity Platform: QUOTA_EXCEEDED")
         self.sent.append((email, continue_url))
 
     def forget(self, email):

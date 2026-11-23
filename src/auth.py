@@ -251,10 +251,12 @@ def email_login():
     password = body.get("password")
     account = users.load(datastore_client(), f"email:{email}")
     # one message for every failure, so the form does not reveal which emails have accounts
-    hashed = None if account is None else account.login.get("password_hash")
-    if not hashed or not isinstance(password, str) or not check_password_hash(hashed, password):
+    login = None if account is None else account.login
+    hashed = None if login is None else login.get("password_hash")
+    if account is None or login is None or not hashed or not isinstance(password, str) \
+            or not check_password_hash(hashed, password):
         flask.abort(401, "wrong email or password (a new address signs in only after you open the link we mailed it)")
-    users.touch(datastore_client(), account.login, account.user)
+    users.touch(datastore_client(), login, account.user)
     start_session(account)
     return flask.jsonify({"next": flask.url_for("root")})
 

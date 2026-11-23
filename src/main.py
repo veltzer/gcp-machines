@@ -5,12 +5,14 @@ main application
 """
 
 import base64
+import contextlib
 import datetime
 import json
 import os
 import secrets
 import threading
 import time
+import typing
 import urllib.parse
 import warnings
 
@@ -67,8 +69,8 @@ auth.configure(app)
 
 
 credentials, project_id = google.auth.default()
-compute = discovery.build("compute", "v1", credentials=credentials)
-secret_manager = discovery.build("secretmanager", "v1", credentials=credentials)
+compute: typing.Any = discovery.build("compute", "v1", credentials=credentials)
+secret_manager: typing.Any = discovery.build("secretmanager", "v1", credentials=credentials)
 
 # The service objects above may be shared, but the httplib2 connection they
 # carry is not thread-safe, and gunicorn serves requests on several threads.
@@ -113,14 +115,12 @@ def email_to_owner():
     """ email -> owner mapping from Datastore, cached for a short while """
     now = time.monotonic()
     if now >= _mapping_cache["expiry"]:
-        try:
+        # keep serving the last known mapping over a Datastore hiccup
+        with contextlib.suppress(Exception):
             _mapping_cache["mapping"] = {
                 entity.key.name: entity["owner"]
                 for entity in datastore_client.query(kind="student").fetch()
             }
-        except Exception:  # noqa: BLE001,S110 # pylint: disable=broad-exception-caught
-            # keep serving the last known mapping over a Datastore hiccup
-            pass
         _mapping_cache["expiry"] = now + MAPPING_TTL_SECONDS
     return _mapping_cache["mapping"]
 
@@ -224,8 +224,8 @@ def students_table(machines):
     methods = {}
     for login in datastore_client.query(kind=users.LOGIN).fetch():
         if login.get("user"):
-            methods.setdefault(login["user"], []).append(login.key.name.split(":", 1)[0])
-    rows = []
+            methods.setdefault(login["user"], []).append(users.key_name(login).split(":", 1)[0])
+    rows: list[dict[str, typing.Any]] = []
     for user in datastore_client.query(kind=users.USER).fetch():
         account = users.Account(None, user)
         owner, source = assignment(account)

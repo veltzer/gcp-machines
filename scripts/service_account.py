@@ -20,6 +20,7 @@ Commands:
 import argparse
 import base64
 import os
+import typing
 
 import google.auth
 from googleapiclient import discovery
@@ -45,12 +46,12 @@ ROLES = [
     "roles/identitytoolkit.admin",
 ]
 
-def get_iam_client():
+def get_iam_client() -> typing.Any:
     """Initializes and returns an IAM API client."""
     credentials, _ = google.auth.default()
     return discovery.build("iam", "v1", credentials=credentials)
 
-def get_crm_client():
+def get_crm_client() -> typing.Any:
     """Initializes and returns a Cloud Resource Manager API client."""
     credentials, _ = google.auth.default()
     return discovery.build("cloudresourcemanager", "v1", credentials=credentials)

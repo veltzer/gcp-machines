@@ -6,6 +6,7 @@ This script can be used to create firewall rules to open specific ports or all p
 
 import argparse
 import sys
+import typing
 
 import google.auth
 from googleapiclient import discovery
@@ -31,7 +32,7 @@ def require_default_account(credentials):
             "GOOGLE_APPLICATION_CREDENTIALS / open a fresh shell), then re-run."
         )
 
-def get_compute_client():
+def get_compute_client() -> typing.Any:
     """Initializes and returns a Compute Engine API client."""
     credentials, _ = google.auth.default()
     return discovery.build("compute", "v1", credentials=credentials)

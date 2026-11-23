@@ -92,6 +92,8 @@ def main():
     for login in logins:
         joined = f"joins user {login['user']}" if login.get("user") else "no user (email not verified)"
         assigned = f", assigned {login['owner']}" if login.get("owner") else ""
+        if login.key is None:
+            raise ValueError("login entity has no key")
         print(f"login {login.key.name}: {joined}{assigned}")
     for user in users:
         assigned = f", assigned {user['owner']}" if user.get("owner") else ""

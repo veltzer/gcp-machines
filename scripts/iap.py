@@ -17,8 +17,10 @@ emails are private data.
 import argparse
 import os
 import sys
+import typing
 
 import google.auth
+import google.auth.exceptions
 from google.cloud import datastore
 from googleapiclient import discovery
 from googleapiclient.errors import HttpError
@@ -44,9 +46,9 @@ def read_students():
             "out of the public repository."
         )
     students = []
-    with open(STUDENTS_FILE, "r", encoding="utf-8") as stream:
-        for line in stream:
-            line = line.strip()
+    with open(STUDENTS_FILE, encoding="utf-8") as stream:
+        for raw_line in stream:
+            line = raw_line.strip()
             if not line or line.startswith("#"):
                 continue
             parts = line.split()
@@ -84,7 +86,7 @@ def get_project_number(project_id, credentials):
     Returns the numeric project number for a project id. The IAP IAM resource
     path is canonically built from the project number.
     """
-    crm = discovery.build("cloudresourcemanager", "v1", credentials=credentials)
+    crm: typing.Any = discovery.build("cloudresourcemanager", "v1", credentials=credentials)
     project = crm.projects().get(projectId=project_id).execute()
     return project["projectNumber"]
 
@@ -141,12 +143,12 @@ def iap_enabled(project_id, credentials):
     None if that could not be determined.
     """
     try:
-        run = discovery.build("run", "v2", credentials=credentials)
+        run: typing.Any = discovery.build("run", "v2", credentials=credentials)
         service = run.projects().locations().services().get(
             name=f"projects/{project_id}/locations/{REGION}/services/{SERVICE}"
         ).execute()
         return bool(service.get("iapEnabled", False))
-    except Exception:  # noqa: BLE001 # pylint: disable=broad-exception-caught
+    except (HttpError, google.auth.exceptions.GoogleAuthError, OSError):
         return None
 
 def status(project_id, iap, resource, credentials):
@@ -352,17 +354,17 @@ def main():
 
     # Status command
     status_parser = subparsers.add_parser("status", help="Show whether IAP is on and who has access.")
-    status_parser.set_defaults(func=lambda args, ctx: status(ctx["project_id"], ctx["iap"], ctx["resource"], ctx["credentials"]))
+    status_parser.set_defaults(func=lambda _args, ctx: status(ctx["project_id"], ctx["iap"], ctx["resource"], ctx["credentials"]))
 
     # Grant command
     grant_parser = subparsers.add_parser("grant", help="Grant IAP access to one or more emails.")
     grant_parser.add_argument("emails", nargs="+", help="Email addresses to grant access to.")
-    grant_parser.set_defaults(func=lambda args, ctx: grant(ctx["iap"], ctx["resource"], args.emails))
+    grant_parser.set_defaults(func=lambda _args, ctx: grant(ctx["iap"], ctx["resource"], args.emails))
 
     # Revoke command
     revoke_parser = subparsers.add_parser("revoke", help="Revoke IAP access from one or more emails.")
     revoke_parser.add_argument("emails", nargs="+", help="Email addresses to revoke access from.")
-    revoke_parser.set_defaults(func=lambda args, ctx: revoke(ctx["iap"], ctx["resource"], args.emails))
+    revoke_parser.set_defaults(func=lambda _args, ctx: revoke(ctx["iap"], ctx["resource"], args.emails))
 
     # Sync command
     sync_parser = subparsers.add_parser(
@@ -374,21 +376,21 @@ def main():
         action="store_true",
         help="Also revoke user grants that are not in the file.",
     )
-    sync_parser.set_defaults(func=lambda args, ctx: sync(ctx["iap"], ctx["resource"], args.prune, ctx["project_id"]))
+    sync_parser.set_defaults(func=lambda _args, ctx: sync(ctx["iap"], ctx["resource"], args.prune, ctx["project_id"]))
 
     # Push-roster command
     push_parser = subparsers.add_parser(
         "push-roster",
         help=f"Push the email -> owner roster from {STUDENTS_FILE} to Datastore for the app (no IAP grants).",
     )
-    push_parser.set_defaults(func=lambda args, ctx: push_mapping(ctx["project_id"]))
+    push_parser.set_defaults(func=lambda _args, ctx: push_mapping(ctx["project_id"]))
 
     # Consent-status command
     consent_status_parser = subparsers.add_parser(
         "consent-status",
         help="Show the OAuth consent screen (brand) of the project.",
     )
-    consent_status_parser.set_defaults(func=lambda args, ctx: consent_status(ctx["iap"], ctx["project_number"]))
+    consent_status_parser.set_defaults(func=lambda _args, ctx: consent_status(ctx["iap"], ctx["project_number"]))
 
     # Consent-create command
     consent_create_parser = subparsers.add_parser(
@@ -398,7 +400,7 @@ def main():
     consent_create_parser.add_argument("--title", required=True, help="Application title shown on the login page.")
     consent_create_parser.add_argument("--email", required=True, help="Support email (must be owned by you).")
     consent_create_parser.set_defaults(
-        func=lambda args, ctx: consent_create(ctx["iap"], ctx["project_number"], args.title, args.email)
+        func=lambda _args, ctx: consent_create(ctx["iap"], ctx["project_number"], args.title, args.email)
     )
 
     # Show-input-sample command
@@ -406,7 +408,7 @@ def main():
         "show-input-sample",
         help="Show a sample of the expected student emails file.",
     )
-    sample_parser.set_defaults(func=lambda args, ctx: show_input_sample())
+    sample_parser.set_defaults(func=lambda _args, _ctx: show_input_sample())
 
     args = parser.parse_args()
     credentials, project_id = google.auth.default()

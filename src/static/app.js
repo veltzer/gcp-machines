@@ -79,14 +79,14 @@ async function showBuild() {
 // ─── sign-in page ───────────────────────────────────────────────────────────
 
 function setupProviders(configured) {
-	for (const link of document.querySelectorAll(".method[data-provider]")) {
-		if (configured[link.dataset.provider]) {
+	for (const method of document.querySelectorAll(".method[data-provider]")) {
+		if (configured[method.dataset.provider]) {
 			continue;
 		}
-		link.classList.add("off");
-		link.setAttribute("aria-disabled", "true");
-		link.title = "Not configured on this server";
-		link.onclick = (event) => event.preventDefault();
+		method.classList.add("off");
+		method.setAttribute("aria-disabled", "true");
+		method.title = "Not configured on this server";
+		method.onclick = (event) => event.preventDefault();
 	}
 }
 
@@ -99,12 +99,12 @@ function setupEmailForm() {
 	let mode = "login";
 
 	const applyMode = () => {
-		const link = mode === "link";
-		submit.textContent = link ? "Mail me a link" : "Sign in";
-		$("password-row").hidden = link;
-		$("email-hint").hidden = !link;
-		$("email-switch-text").textContent = link ? "Already chose a password?" : "New here, or forgot your password?";
-		$("email-mode").textContent = link ? "Sign in" : "Get a link by mail";
+		const linkMode = mode === "link";
+		submit.textContent = linkMode ? "Mail me a link" : "Sign in";
+		$("password-row").hidden = linkMode;
+		$("email-hint").hidden = !linkMode;
+		$("email-switch-text").textContent = linkMode ? "Already chose a password?" : "New here, or forgot your password?";
+		$("email-mode").textContent = linkMode ? "Sign in" : "Get a link by mail";
 		showError("");
 	};
 	$("email-mode").onclick = () => {
@@ -296,7 +296,7 @@ function confirmDeletes() {
 	dialog.onclose = () => {
 		pending = null;
 	};
-	for (const form of document.querySelectorAll("form[data-delete]")) {
+	const arm = (form) => {
 		form.onsubmit = (event) => {
 			event.preventDefault();
 			pending = form;
@@ -308,6 +308,9 @@ function confirmDeletes() {
 			dialog.showModal();
 			input.focus();
 		};
+	};
+	for (const form of document.querySelectorAll("form[data-delete]")) {
+		arm(form);
 	}
 }
 
