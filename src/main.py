@@ -6,7 +6,7 @@ main application
 
 import base64
 import contextlib
-import datetime
+import datetime as dt
 import json
 import os
 import secrets
@@ -347,7 +347,6 @@ def api_config():
 
 def get_machines():
     """ list all instances in all zones """
-    # pylint: disable=no-member
     request = compute.instances().aggregatedList(project=project_id)
     all_instances = []
     while request is not None:
@@ -388,8 +387,8 @@ def turns_off_at(instance):
     started = instance.get("lastStartTimestamp")
     if instance.get("status") != "RUNNING" or not seconds or not started:
         return None
-    end = datetime.datetime.fromisoformat(started) + datetime.timedelta(seconds=int(seconds))
-    return end.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    end = dt.datetime.fromisoformat(started) + dt.timedelta(seconds=int(seconds))
+    return end.astimezone(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 @app.route("/verify", methods=["GET"])
@@ -465,7 +464,6 @@ def get_instance_for(user, name, zone):
     The live instance, if the user may control it: an admin any, a student
     only one whose owner label is their assignment. Aborts otherwise.
     """
-    # pylint: disable=no-member
     if not RESOURCE_NAME.fullmatch(name) or not RESOURCE_NAME.fullmatch(zone):
         flask.abort(400, "Bad machine name or zone.")
     instance = compute.instances().get(project=project_id, zone=zone, instance=name).execute(http=api_http())
@@ -495,7 +493,6 @@ def account_picture():
 @auth.login_required
 def download_key():
     """ the machine's private ssh key, as a file, for its student or an admin """
-    # pylint: disable=no-member
     name = flask.request.args["name"]
     get_instance_for(auth.current_user(), name, flask.request.args["zone"])
     secret = f"projects/{project_id}/secrets/{provision.KEY_SECRET_PREFIX}{name}/versions/latest"
@@ -600,7 +597,6 @@ def create():
 @auth.login_required
 def start():
     """ start a stopped machine, or resume a suspended one """
-    # pylint: disable=no-member
     name, zone, instance = instance_from_form()
     if instance["status"] == "TERMINATED":
         compute.instances().start(project=project_id, zone=zone, instance=name).execute(http=api_http())
@@ -618,7 +614,6 @@ def start():
 @auth.login_required
 def stop():
     """ stop a running machine: its disk stays, what runs in memory does not """
-    # pylint: disable=no-member
     name, zone, instance = instance_from_form()
     if instance["status"] != "RUNNING":
         return done(busy(name, instance))
@@ -630,7 +625,6 @@ def stop():
 @auth.login_required
 def delete():
     """ delete a machine, its disk and its key, for good """
-    # pylint: disable=no-member
     name, zone, _instance = instance_from_form()
     compute.instances().delete(project=project_id, zone=zone, instance=name).execute(http=api_http())
     provision.delete_key(secret_manager, project_id, name, http=api_http())

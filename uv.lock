@@ -294,6 +294,7 @@ dev = [
     { name = "pyrefly" },
     { name = "pytest" },
     { name = "ruff" },
+    { name = "types-httplib2" },
 ]
 
 [package.metadata]
@@ -316,6 +317,7 @@ dev = [
     { name = "pyrefly" },
     { name = "pytest" },
     { name = "ruff" },
+    { name = "types-httplib2" },
 ]
 
 [[package]]
@@ -799,6 +801,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/2e/09/28329441dfa2c463e2d377a69d4ebbe4d51665e9dbd49fb421f3bc80d775/ruff-0.17.6-py3-none-win32.whl", hash = "sha256:c2f4af6670b7a0501904e881bb3f1f24bd0d964dec1eedbd85f0eb73786e1128", size = 9966266, upload-time = "2026-11-19T15:56:21.581Z" },
     { url = "https://files.pythonhosted.org/packages/4b/9d/18ba9730addfc7554c70d6f171fb8dc2c08e774d9fb2b98e7946ef845c59/ruff-0.17.6-py3-none-win_amd64.whl", hash = "sha256:9cd2fd9923e9806b8b6b67a3469e2258e84bd4d21e45d5a1a690afdfb9c8e57d", size = 10365847, upload-time = "2026-11-19T15:56:23.582Z" },
     { url = "https://files.pythonhosted.org/packages/70/8a/59c33e2a64a4f9672f7f842a0dc522915cfbbaffd13d37d0cec57d1c5c5d/ruff-0.17.6-py3-none-win_arm64.whl", hash = "sha256:d8b14e1473dc86ab9069cf7a2ba5041dc012f59110201844ed04cfddf07055a0", size = 9926224, upload-time = "2026-11-19T15:56:25.269Z" },
+]
+
+[[package]]
+name = "types-httplib2"
+version = "0.32.1.20261122"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/44/1f/1a92acc15afd9b85318a9034f4b96c3354bb839a69fb46359328c99b8672/types_httplib2-0.32.1.20261122.tar.gz", hash = "sha256:42978e3e5fe6e160a1e247248836c39cc5eeeb3502b47004d427f71a49b9d1c8", size = 12043, upload-time = "2026-11-22T08:59:05.413Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8e/2b/4bd0b62ea1501e4c0484234476967a85d45ded6b947d03774108692590e7/types_httplib2-0.32.1.20261122-py3-none-any.whl", hash = "sha256:664aac7f07bb00c16ef174439be2586c62c24fc6d4cb14cff16ab9d6212b1059", size = 11529, upload-time = "2026-11-22T08:59:04.689Z" },
 ]
 
 [[package]]

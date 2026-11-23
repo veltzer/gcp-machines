@@ -41,7 +41,7 @@ have at once, absent for DEFAULT_MACHINE_LIMIT), created, last_login.
 """
 
 import dataclasses
-import datetime
+import datetime as dt
 
 from google.cloud import datastore
 
@@ -67,7 +67,7 @@ def key_name(entity):
 
 
 def now():
-    return datetime.datetime.now(datetime.UTC)
+    return dt.datetime.now(dt.UTC)
 
 
 class UnverifiedEmailError(Exception):

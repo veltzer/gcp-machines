@@ -15,6 +15,7 @@ import threading
 import unittest.mock
 import urllib.parse
 
+import flask.testing
 import pytest
 from google.cloud import datastore
 from googleapiclient.errors import HttpError
@@ -151,6 +152,18 @@ class FakeMailer:
         self.forgotten.append(email)
 
 
+class BufferedClient(flask.testing.FlaskClient):
+    """
+    A test client that reads each reply whole and closes it, as a WSGI server
+    does. The default leaves a streamed reply (a file from
+    send_from_directory) open until garbage collection.
+    """
+
+    def open(self, *args, **kwargs):
+        kwargs.setdefault("buffered", True)
+        return super().open(*args, **kwargs)
+
+
 def load_app(environ=None):
     """
     Import a fresh copy of the app with GCP mocked out.
@@ -167,6 +180,7 @@ def load_app(environ=None):
         sys.modules.pop("src.main", None)
         module = importlib.import_module("src.main")
     module.app.config["TESTING"] = True
+    module.app.test_client_class = BufferedClient
     module.app.config["MAILER"] = FakeMailer()
     return module, fake_compute
 

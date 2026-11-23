@@ -35,7 +35,7 @@ person, who is the same whichever way they signed in (see users.py).
 """
 
 import dataclasses
-import datetime
+import datetime as dt
 import functools
 import hashlib
 import hmac
@@ -47,6 +47,7 @@ import urllib.parse
 import flask
 import requests
 import werkzeug
+import werkzeug.exceptions
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -59,8 +60,8 @@ bp = flask.Blueprint("auth", __name__, url_prefix="/auth")
 PASSWORD_MIN_LENGTH = 8
 HTTP_TIMEOUT = 10
 # how long a mailed link works, and how soon another may be mailed to the same address
-LINK_LIFETIME = datetime.timedelta(days=1)
-RESEND_INTERVAL = datetime.timedelta(minutes=1)
+LINK_LIFETIME = dt.timedelta(days=1)
+RESEND_INTERVAL = dt.timedelta(minutes=1)
 # what the sign-in page says when the provider does not vouch for the email
 UNVERIFIED = "{provider} did not confirm an email address for you: verify one with {provider} and sign in again"
 

@@ -68,7 +68,6 @@ def find_service_account(project_id, iam_client):
     or None if it does not.
     """
     email = service_account_email(project_id)
-    # pylint: disable=no-member
     accounts = iam_client.projects().serviceAccounts().list(
         name=f"projects/{project_id}"
     ).execute().get("accounts", [])
@@ -84,14 +83,12 @@ def create_service_account(project_id, iam_client):
     existing_account = find_service_account(project_id, iam_client)
     if existing_account:
         print(f"Service account '{email}' already exists. Deleting it first.")
-        # pylint: disable=no-member
         iam_client.projects().serviceAccounts().delete(
             name=existing_account["name"]
         ).execute()
         print("Existing service account deleted.")
 
     print(f"Creating service account '{email}'...")
-    # pylint: disable=no-member
     iam_client.projects().serviceAccounts().create(
         name=f"projects/{project_id}",
         body={"accountId": account_id, "serviceAccount": {"displayName": SERVICE_ACCOUNT_NAME}},
@@ -106,7 +103,6 @@ def grant_roles(project_id, email, crm_client):
     member = f"serviceAccount:{email}"
     print(f"Granting roles to '{member}'...")
 
-    # pylint: disable=no-member
     policy = crm_client.projects().getIamPolicy(resource=project_id).execute()
 
     for role in ROLES:
@@ -118,7 +114,6 @@ def grant_roles(project_id, email, crm_client):
             policy.setdefault("bindings", []).append({"role": role, "members": [member]})
         print(f"  - Added binding for role: {role}")
 
-    # pylint: disable=no-member
     crm_client.projects().setIamPolicy(
         resource=project_id, body={"policy": policy}
     ).execute()
@@ -134,7 +129,6 @@ def list_granted_roles(project_id, email, crm_client):
     """
     member = f"serviceAccount:{email}"
     try:
-        # pylint: disable=no-member
         policy = crm_client.projects().getIamPolicy(resource=project_id).execute()
     except HttpError as e:
         if e.resp.status == 403:
@@ -160,7 +154,6 @@ def create_and_download_key(project_id, email, iam_client):
     os.makedirs(os.path.dirname(key_path), exist_ok=True)
 
     print(f"Creating and downloading key to '{key_path}'...")
-    # pylint: disable=no-member
     key = iam_client.projects().serviceAccounts().keys().create(
         name=f"projects/{project_id}/serviceAccounts/{email}",
         body={}
@@ -226,7 +219,6 @@ def handle_delete(_args, project_id):
         print(f"Service account '{email}' does not exist. Nothing to delete.")
         return
     print(f"Deleting service account '{email}'...")
-    # pylint: disable=no-member
     iam_client.projects().serviceAccounts().delete(
         name=existing_account["name"]
     ).execute()
