@@ -149,8 +149,9 @@ organization:
    `https://machines.veltzer.org/auth/login` and
    `http://localhost:8080/auth/login`. Paste the client ID into
    `gcp_oauth_client_id`, store the client secret with `pass insert
-   keys/google.com.machines-oauth` (first line; notes may follow), and run
-   `gcloud_project_setup.sh`, which copies it to the Secret Manager secret
+   gcp/veltzer-machines-id/oauth-client-secret` (first line; notes may
+   follow), and run `gcloud_project_setup.sh`, which copies it to the
+   Secret Manager secret
    `machines-google-client-secret`. The consent screen is the External one
    already configured for IAP. (The JavaScript origins date from Google's
    sign-in button, which the app no longer uses.)
