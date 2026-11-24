@@ -127,6 +127,7 @@ still-open items are carried over under "Repo hygiene").
 - **10 GB boot disk** (`src/provision.py` `DISK_GB`) is tight for machines meant to run
   KVM guests (one cloud image plus a qcow2 overlay already fills much of
   it). Consider 20-30 GB.
+
 ### Docs and config
 
 - **`doc/TODO.txt`**: "move to the non discovery api" (google-cloud-compute
