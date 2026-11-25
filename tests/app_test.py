@@ -248,6 +248,13 @@ def test_root_shows_sign_in_page_when_signed_out():
     assert "1.2.3.4" not in body
 
 
+def test_privacy_page_is_public():
+    module, _fake_compute = load_app()
+    response = module.app.test_client().get("/privacy")
+    assert response.status_code == 200
+    assert "<h1>Privacy</h1>" in response.get_data(as_text=True)
+
+
 def test_root_lists_machines_and_survives_missing_fields():
     module, _fake_compute = load_app(ADMIN)
     client = signed_in_client(module)

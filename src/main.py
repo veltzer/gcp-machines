@@ -397,6 +397,12 @@ def verify_page():
     return flask.send_from_directory(HTML_DIR, "verify.html")
 
 
+@app.route("/privacy", methods=["GET"])
+def privacy_page():
+    """ what the site keeps about its users; public, Google's consent screen links to it """
+    return flask.send_from_directory(HTML_DIR, "privacy.html")
+
+
 @app.route("/", methods=["GET"])
 def root():
     """ the sign-in page, or the machines the signed-in user may control """
