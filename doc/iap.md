@@ -5,7 +5,9 @@
 > Google account can sign up, and IAP is off. What stays in use from this
 > page is the roster: `python scripts/iap.py push-roster` pushes the
 > email-to-owner mapping from `data.gi/students.txt` to Datastore (`sync`
-> does too, along with IAP grants that no longer gate anything).
+> does too, along with IAP grants that no longer gate anything). The OAuth
+> client the enablement below created, "IAP-machines", was deleted on
+> 2026-11-25, so turning IAP back on needs a new one.
 
 IAP sits in front of the Cloud Run service and forces a Google sign-in before
 any request reaches the app. Access is granted per email address. Enabling it

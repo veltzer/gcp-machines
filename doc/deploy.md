@@ -143,7 +143,8 @@ Creating the clients, which cannot be scripted for a project outside an
 organization:
 
 1. Google: in the console, `APIs & Services -> Credentials -> Create
-   credentials -> OAuth client ID`, type `Web application`. Authorized
+   credentials -> OAuth client ID`, type `Web application`, named after
+   the project ID (`veltzer-machines-id`). Authorized
    JavaScript origins: `https://machines.veltzer.org` and
    `http://localhost:8080`. Authorized redirect URIs:
    `https://machines.veltzer.org/auth/login` and
