@@ -7,7 +7,9 @@
 > email-to-owner mapping from `data.gi/students.txt` to Datastore (`sync`
 > does too, along with IAP grants that no longer gate anything). The OAuth
 > client the enablement below created, "IAP-machines", was deleted on
-> 2026-11-25, so turning IAP back on needs a new one.
+> 2026-11-25, so turning IAP back on needs a new one. So was "IAP App
+> Engine", the client of the older App Engine deployment, after IAP was
+> turned off on the (already disabled) App Engine app.
 
 IAP sits in front of the Cloud Run service and forces a Google sign-in before
 any request reaches the app. Access is granted per email address. Enabling it
