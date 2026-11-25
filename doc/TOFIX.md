@@ -144,8 +144,6 @@ still-open items are carried over under "Repo hygiene").
 - `support/gjslint.cfg` and `support/jsl.conf` configure Closure Linter and
   JavaScript Lint, which nothing runs (oxlint lints `src/static/app.js`).
   Delete `support/` (and its `.gcloudignore` line).
-- `config/project.lua:4` `DESCRIPTION_SHORT = "The machines project in GAE"`
-  is stale (the app runs on Cloud Run) and is rendered into `README.md`.
 - `rsconstruct.toml:20,24` list `config` (only `.lua` files) in the ruff and
   pyrefly `src_dirs`. Drop it (fleet-wide pattern; fix at the fleet's source
   too, keeping `rsmultigit check same` clean).

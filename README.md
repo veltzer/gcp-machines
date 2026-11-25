@@ -3,7 +3,7 @@
      values that template reads, and build again. -->
 # *gcp-machines* project by Mark Veltzer
 
-description: The machines project in GAE
+description: Turn machines in my GCP account on and off, for students (Cloud Run)
 
 project website: <https://veltzer.github.io/gcp-machines>
 
