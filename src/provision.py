@@ -111,6 +111,13 @@ def store_key(secrets, project_id, name, owner, private_key, http=None):
     ).execute(http=http)
 
 
+def read_key(secrets, project_id, name, http=None):
+    """ a machine's private key, as bytes, from the newest version of its secret """
+    secret = f"projects/{project_id}/secrets/{KEY_SECRET_PREFIX}{name}/versions/latest"
+    version = secrets.projects().secrets().versions().access(name=secret).execute(http=http)
+    return base64.b64decode(version["payload"]["data"])
+
+
 def delete_key(secrets, project_id, name, http=None):
     """ deletes a machine's key secret; True if there was one """
     try:
@@ -177,7 +184,7 @@ def pick_zone(compute, project_id, http=None):
     return None
 
 
-def create(compute, secrets, project_id, owner, number, zone, extra_keys=(), http=None):
+def create(compute, secrets, project_id, owner, number, zone, http=None):
     """
     Creates the owner's machine number <number> in zone with a new key pair
     of its own, and returns (instance name, insert operation name). Does
@@ -187,14 +194,12 @@ def create(compute, secrets, project_id, owner, number, zone, extra_keys=(), htt
     requests for the same owner the second insert fails (same name, same
     zone) before it can replace the first one's key. Should storing the key
     fail, the machine is deleted again rather than left without a key.
-    extra_keys are more public key lines its ubuntu user accepts (the
-    admin's, from the command line).
     """
     name = instance_name(owner, number)
     if name is None:
         raise ValueError(f"owner label {owner!r} does not make a valid machine name")
     private_key, public_key = generate_key_pair(f"{owner}@{name}")
-    body = instance_body(name, zone, owner, [*extra_keys, public_key])
+    body = instance_body(name, zone, owner, [public_key])
     operation = compute.instances().insert(project=project_id, zone=zone, body=body).execute(http=http)
     try:
         store_key(secrets, project_id, name, owner, private_key, http=http)

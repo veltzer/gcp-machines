@@ -4,7 +4,6 @@
 main application
 """
 
-import base64
 import contextlib
 import datetime as dt
 import json
@@ -501,14 +500,13 @@ def download_key():
     """ the machine's private ssh key, as a file, for its student or an admin """
     name = flask.request.args["name"]
     get_instance_for(auth.current_user(), name, flask.request.args["zone"])
-    secret = f"projects/{project_id}/secrets/{provision.KEY_SECRET_PREFIX}{name}/versions/latest"
     try:
-        version = secret_manager.projects().secrets().versions().access(name=secret).execute(http=api_http())
+        key = provision.read_key(secret_manager, project_id, name, http=api_http())
     except HttpError as error:
         if error.resp.status == 404:
             flask.abort(404, "This machine has no downloadable key. Ask your instructor.")
         raise
-    response = flask.Response(base64.b64decode(version["payload"]["data"]), mimetype="application/octet-stream")
+    response = flask.Response(key, mimetype="application/octet-stream")
     response.headers["Content-Disposition"] = f'attachment; filename="{name}.key"'
     # a private key: never kept by a browser cache or a proxy
     response.headers["Cache-Control"] = "no-store"

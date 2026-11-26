@@ -206,13 +206,10 @@ student and admins) and connects with the `ssh` command shown there. The
 app's service account needs `roles/secretmanager.admin` for this
 (`python scripts/service_account.py grant`).
 
-So that `connect` and `tunnel` reach machines the students make, put the
-admin key `~/.ssh/id_machines.pub` into the project-wide ssh keys once,
-which every machine accepts on top of its own:
-
-```bash
-python scripts/machines.py admin-key
-```
+`python scripts/machines.py connect` and `tunnel` use the same key: they
+fetch the machine's own key from Secret Manager into a private temporary
+directory for as long as ssh runs (`--key` uses another key file instead).
+There is no admin key that opens every machine.
 
 To get a course ready:
 

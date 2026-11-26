@@ -9,12 +9,15 @@ import argparse
 import json
 import os
 import socket
+import subprocess
 import sys
+import tempfile
 import time
 import typing
 
 import google.auth
 from googleapiclient import discovery
+from googleapiclient.errors import HttpError
 
 # The machine spec is shared with the web app, which lives in src/.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -51,13 +54,6 @@ def read_students():
             parts = line.split()
             students.append((parts[0], parts[1] if len(parts) > 1 else None))
     return students
-
-# Always read the SSH public key from ~/.ssh/id_machines.pub.
-SSH_KEY_FILE = os.path.expanduser("~/.ssh/id_machines.pub")
-
-# The private half of the key whose public half is injected into every instance
-# at creation time (SSH_KEY_FILE above). Used by connect and tunnel.
-SSH_PRIVATE_KEY_FILE = os.path.expanduser("~/.ssh/id_machines")
 
 # The user the ssh-keys metadata is created for, and so the one connect and
 # tunnel log in as by default.
@@ -433,8 +429,6 @@ def create_command(args, project_id, compute):
     per student are made by the students themselves in the web app, up to
     the limit an admin set them there.
     """
-    with open(SSH_KEY_FILE, encoding="utf-8") as f:
-        ssh_key = f.read().strip()
     owners = [owner for owner, _email in read_students()]
 
     # Check owners BEFORE creating anything, so we fail fast instead of
@@ -488,15 +482,14 @@ def create_command(args, project_id, compute):
             f"Owner(s) left unassigned: {', '.join(remaining)}"
         )
 
-    # Each machine gets its own key pair, stored in Secret Manager for the
-    # web app to hand out. Its ubuntu user also accepts the admin key, so
-    # connect and tunnel keep working.
+    # Each machine gets its own key pair, stored in Secret Manager, from
+    # where the web app hands it out and connect and tunnel fetch it.
     secrets = get_secrets_client()
     operations = []
     for owner, zone in assignments:
         name = provision.instance_name(owner, 1)
         print(f"Creating {name} in {zone} for {owner}...")
-        _name, op_name = provision.create(compute, secrets, project_id, owner, 1, zone, extra_keys=[ssh_key])
+        _name, op_name = provision.create(compute, secrets, project_id, owner, 1, zone)
         if args.wait_mode == WAIT_EACH:
             wait_for_operation(project_id, compute, zone, op_name, "come up")
             print(f"Instance {name} created successfully.")
@@ -504,37 +497,6 @@ def create_command(args, project_id, compute):
             operations.append((zone, op_name))
     if args.wait_mode == WAIT_ALL:
         wait_for_operations(project_id, compute, operations, "come up")
-
-def admin_key_command(_args, project_id, compute):
-    """
-    Adds the admin key (SSH_KEY_FILE) to the project-wide ssh-keys metadata,
-    which every machine accepts on top of its own. Machines a student
-    creates in the web app carry only their own key; this is what lets
-    connect and tunnel reach them too. Other project-wide keys are kept.
-    """
-    with open(SSH_KEY_FILE, encoding="utf-8") as f:
-        line = f"{DEFAULT_USER}:{f.read().strip()}"
-    metadata = compute.projects().get(project=project_id).execute().get("commonInstanceMetadata", {})
-    items = metadata.get("items", [])
-    entry = next((item for item in items if item["key"] == "ssh-keys"), None)
-    if entry is None:
-        entry = {"key": "ssh-keys", "value": ""}
-        items.append(entry)
-    lines = [existing for existing in entry["value"].splitlines() if existing.strip()]
-    if line in lines:
-        print(f"The project already accepts {SSH_KEY_FILE}.")
-        return
-    entry["value"] = "\n".join([*lines, line])
-    operation = compute.projects().setCommonInstanceMetadata(
-        project=project_id,
-        body={"fingerprint": metadata.get("fingerprint"), "items": items},
-    ).execute()
-    while operation["status"] != "DONE":
-        time.sleep(1)
-        operation = compute.globalOperations().get(project=project_id, operation=operation["name"]).execute()
-    if "error" in operation:
-        raise ValueError(operation["error"])
-    print(f"Every machine in the project now accepts {SSH_KEY_FILE} for {DEFAULT_USER}.")
 
 # The connect and tunnel commands never write an IP down: a machine is
 # identified by the "owner" label it was created with, and its external IP is
@@ -555,22 +517,40 @@ def add_target_arguments(subparser):
     subparser.add_argument(
         "--key",
         default=None,
-        help=f"Private key to use (default: {SSH_PRIVATE_KEY_FILE}).",
+        help="Private key to use (default: the machine's own key, fetched from Secret Manager).",
     )
 
-def ssh_key_path(key):
+def run_ssh(project_id, name, key, ssh_args):
     """
-    Returns the private key path to use, defaulting to SSH_PRIVATE_KEY_FILE,
-    and exits with an actionable message if it is not there.
+    Runs ssh with the given arguments after "-i <key>" and exits with its
+    status. Without --key, the machine's own private key is fetched from
+    Secret Manager into a private temporary directory, which is removed
+    again when ssh exits; the key is never kept on disk.
     """
-    path = os.path.expanduser(key) if key else SSH_PRIVATE_KEY_FILE
-    if not os.path.exists(path):
-        sys.exit(
-            f"No ssh private key at {path}.\n"
-            "This is the private half of the key injected into every\n"
-            f"instance ({SSH_KEY_FILE}). Put it there, or pass --key."
-        )
-    return path
+    if key:
+        sys.exit(call_ssh(os.path.expanduser(key), ssh_args))
+    try:
+        private_key = provision.read_key(get_secrets_client(), project_id, name)
+    except HttpError as error:
+        if error.resp.status != 404:
+            raise
+        sys.exit(f"Machine {name} has no key in Secret Manager ({provision.KEY_SECRET_PREFIX}{name}).")
+    with tempfile.TemporaryDirectory() as directory:
+        path = os.path.join(directory, name)
+        with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as stream:
+            stream.write(private_key)
+        status = call_ssh(path, ssh_args)
+    sys.exit(status)
+
+def call_ssh(key_path, ssh_args):
+    """
+    Runs "ssh -i <key_path> <ssh_args>" and returns its exit status; ctrl-c,
+    which ends a tunnel, ends ssh and returns 130 instead of a traceback.
+    """
+    try:
+        return subprocess.call(["ssh", "-i", key_path, *ssh_args])
+    except KeyboardInterrupt:
+        return 130
 
 def instance_ip(instance):
     """
@@ -595,9 +575,10 @@ def find_by_owner(project_id, compute, owner):
         if instance.get("labels", {}).get("owner") == owner
     ]
 
-def owner_ip(project_id, compute, owner):
+def owner_machine(project_id, compute, owner):
     """
-    Returns the current external IP of the machine belonging to an owner.
+    Returns (instance name, current external IP) of the machine belonging to
+    an owner.
 
     Exits with an actionable message when there is no such machine, when the
     machine is not running (and so has no IP to connect to), or when the name
@@ -632,7 +613,7 @@ def owner_ip(project_id, compute, owner):
             "no external IP.\n"
             "Start it from the web app, or with: python scripts/machines.py continue"
         )
-    return ip
+    return instance["name"], ip
 
 def strip_separator(extra_args):
     """
@@ -666,13 +647,11 @@ def parse_ports(spec):
 
 def connect_command(args, project_id, compute):
     """
-    SSH into a student's machine by owner name, replacing this process with
-    ssh.
+    SSH into a student's machine by owner name.
     """
-    ip = owner_ip(project_id, compute, args.owner)
-    command = ["ssh", "-i", ssh_key_path(args.key), f"{args.user}@{ip}", *strip_separator(args.ssh_args)]
+    name, ip = owner_machine(project_id, compute, args.owner)
     print(f"Connecting to {args.owner} at {ip}...", file=sys.stderr)
-    os.execvp(command[0], command)
+    run_ssh(project_id, name, args.key, [f"{args.user}@{ip}", *strip_separator(args.ssh_args)])
 
 def test_port_command(args, project_id, compute):
     """
@@ -685,7 +664,7 @@ def test_port_command(args, project_id, compute):
     question, since a freshly created or just-continued machine answers on 22
     only once it has finished booting.
     """
-    ip = owner_ip(project_id, compute, args.owner)
+    _name, ip = owner_machine(project_id, compute, args.owner)
     print(
         f"Testing port {args.port} on {args.owner} ({ip})...",
         file=sys.stderr,
@@ -700,24 +679,16 @@ def test_port_command(args, project_id, compute):
 
 def tunnel_command(args, project_id, compute):
     """
-    Opens an SSH port-forward to a student's machine by owner name, replacing
-    this process with ssh.
+    Opens an SSH port-forward to a student's machine by owner name.
     """
-    ip = owner_ip(project_id, compute, args.owner)
+    name, ip = owner_machine(project_id, compute, args.owner)
     local_port, remote_port = args.ports
-    command = [
-        "ssh",
-        "-N",
-        "-i", ssh_key_path(args.key),
-        "-L", f"{local_port}:{args.host}:{remote_port}",
-        f"{args.user}@{ip}",
-    ]
     print(
         f"Forwarding localhost:{local_port} to {args.host}:{remote_port} "
         f"on {args.owner} ({ip}); ctrl-c to stop.",
         file=sys.stderr,
     )
-    os.execvp(command[0], command)
+    run_ssh(project_id, name, args.key, ["-N", "-L", f"{local_port}:{args.host}:{remote_port}", f"{args.user}@{ip}"])
 
 def add_wait_flag(subparser):
     """
@@ -777,13 +748,6 @@ def main():
     create_parser = subparsers.add_parser("create", help="Create a VM for every student in the file who has none.")
     add_wait_flag(create_parser)
     create_parser.set_defaults(func=create_command)
-
-    # Admin-key command
-    admin_key_parser = subparsers.add_parser(
-        "admin-key",
-        help="Let every machine, also those students create, accept the admin ssh key.",
-    )
-    admin_key_parser.set_defaults(func=admin_key_command)
 
     # Stop-all command
     stop_parser = subparsers.add_parser("stop", help="Stop all running VM instances.")
