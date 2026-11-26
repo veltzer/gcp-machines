@@ -649,7 +649,7 @@ def test_sign_in_page_offers_three_icons():
 GITHUB = {"GITHUB_CLIENT_ID": "gh-id", "GITHUB_CLIENT_SECRET": "gh-secret"}
 
 
-def google_sign_in(_module, client, sub, email, verified=True):
+def google_sign_in(_module, client, sub, email, *, verified=True):
     """Signs the client in with Google as the given identity, through the code flow."""
     client.get("/auth/oauth/google")
     with client.session_transaction() as session:
