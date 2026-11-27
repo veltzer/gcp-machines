@@ -189,7 +189,7 @@ def load_app(environ=None):
     return module, fake_compute
 
 
-class FakeStudent(dict):
+class FakeStudent(dict[str, Any]):
     """A Datastore student entity: a dict with a key carrying the email."""
 
     def __init__(self, email, owner):
