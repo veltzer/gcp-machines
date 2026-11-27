@@ -62,11 +62,15 @@ def run(logins, *argv):
     """ runs main() against the logins with the given arguments: (client, exit status, printed output) """
     module = load_script()
     client = FakeClient(logins)
-    out = []
+    out: list[str] = []
+
+    def printed(*values: object) -> None:
+        out.append(" ".join(map(str, values)))
+
     with unittest.mock.patch.object(sys, "argv", ["migrate_verified_only.py", *argv]), \
             unittest.mock.patch("google.auth.default", return_value=(unittest.mock.Mock(spec=[]), "test-project")), \
             unittest.mock.patch("google.cloud.datastore.Client", return_value=client), \
-            unittest.mock.patch("builtins.print", side_effect=lambda *a: out.append(" ".join(map(str, a)))):
+            unittest.mock.patch("builtins.print", side_effect=printed):
         try:
             module.main()
             status = 0

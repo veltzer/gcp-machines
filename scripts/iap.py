@@ -18,6 +18,8 @@ import argparse
 import os
 import sys
 import typing
+from collections.abc import Callable
+from typing import Any
 
 import google.auth
 import google.auth.exceptions
@@ -348,6 +350,14 @@ def show_input_sample():
     for name in ("alice", "bob", "carol"):
         print(f"{name} {name}@gmail.com")
 
+Command = Callable[[argparse.Namespace, dict[str, Any]], object]
+
+
+def command(parser: argparse.ArgumentParser, run: Command) -> None:
+    """ Sets what a subcommand runs. """
+    parser.set_defaults(func=run)
+
+
 def main():
     """Main entry point and command-line parser."""
     parser = argparse.ArgumentParser(description="Manage IAP access to the Cloud Run app.")
@@ -355,17 +365,17 @@ def main():
 
     # Status command
     status_parser = subparsers.add_parser("status", help="Show whether IAP is on and who has access.")
-    status_parser.set_defaults(func=lambda _args, ctx: status(ctx["project_id"], ctx["iap"], ctx["resource"], ctx["credentials"]))
+    command(status_parser, lambda _args, ctx: status(ctx["project_id"], ctx["iap"], ctx["resource"], ctx["credentials"]))
 
     # Grant command
     grant_parser = subparsers.add_parser("grant", help="Grant IAP access to one or more emails.")
     grant_parser.add_argument("emails", nargs="+", help="Email addresses to grant access to.")
-    grant_parser.set_defaults(func=lambda _args, ctx: grant(ctx["iap"], ctx["resource"], args.emails))
+    command(grant_parser, lambda args, ctx: grant(ctx["iap"], ctx["resource"], args.emails))
 
     # Revoke command
     revoke_parser = subparsers.add_parser("revoke", help="Revoke IAP access from one or more emails.")
     revoke_parser.add_argument("emails", nargs="+", help="Email addresses to revoke access from.")
-    revoke_parser.set_defaults(func=lambda _args, ctx: revoke(ctx["iap"], ctx["resource"], args.emails))
+    command(revoke_parser, lambda args, ctx: revoke(ctx["iap"], ctx["resource"], args.emails))
 
     # Sync command
     sync_parser = subparsers.add_parser(
@@ -377,21 +387,21 @@ def main():
         action="store_true",
         help="Also revoke user grants that are not in the file.",
     )
-    sync_parser.set_defaults(func=lambda _args, ctx: sync(ctx["iap"], ctx["resource"], args.prune, ctx["project_id"]))
+    command(sync_parser, lambda args, ctx: sync(ctx["iap"], ctx["resource"], args.prune, ctx["project_id"]))
 
     # Push-roster command
     push_parser = subparsers.add_parser(
         "push-roster",
         help=f"Push the email -> owner roster from {STUDENTS_FILE} to Datastore for the app (no IAP grants).",
     )
-    push_parser.set_defaults(func=lambda _args, ctx: push_mapping(ctx["project_id"]))
+    command(push_parser, lambda _args, ctx: push_mapping(ctx["project_id"]))
 
     # Consent-status command
     consent_status_parser = subparsers.add_parser(
         "consent-status",
         help="Show the OAuth consent screen (brand) of the project.",
     )
-    consent_status_parser.set_defaults(func=lambda _args, ctx: consent_status(ctx["iap"], ctx["project_number"]))
+    command(consent_status_parser, lambda _args, ctx: consent_status(ctx["iap"], ctx["project_number"]))
 
     # Consent-create command
     consent_create_parser = subparsers.add_parser(
@@ -400,8 +410,9 @@ def main():
     )
     consent_create_parser.add_argument("--title", required=True, help="Application title shown on the login page.")
     consent_create_parser.add_argument("--email", required=True, help="Support email (must be owned by you).")
-    consent_create_parser.set_defaults(
-        func=lambda _args, ctx: consent_create(ctx["iap"], ctx["project_number"], args.title, args.email)
+    command(
+        consent_create_parser,
+        lambda args, ctx: consent_create(ctx["iap"], ctx["project_number"], args.title, args.email),
     )
 
     # Show-input-sample command
@@ -409,7 +420,7 @@ def main():
         "show-input-sample",
         help="Show a sample of the expected student emails file.",
     )
-    sample_parser.set_defaults(func=lambda _args, _ctx: show_input_sample())
+    command(sample_parser, lambda _args, _ctx: show_input_sample())
 
     args = parser.parse_args()
     credentials, project_id = google.auth.default()

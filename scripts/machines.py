@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 import typing
+from collections.abc import Callable
 from typing import Any
 
 import google.auth
@@ -711,6 +712,14 @@ def add_wait_flag(subparser):
         help="Fire all operations and don't wait for any of them.",
     )
 
+Command = Callable[[argparse.Namespace, str, Any], object]
+
+
+def command(parser: argparse.ArgumentParser, run: Command) -> None:
+    """ Sets what a subcommand runs. """
+    parser.set_defaults(func=run)
+
+
 def main():
     """Main entry point and command-line parser."""
     parser = argparse.ArgumentParser(description="Manage GCP compute instances.")
@@ -718,32 +727,32 @@ def main():
 
     # List command
     list_parser = subparsers.add_parser("list", help="List students and public IPs of all VM instances.")
-    list_parser.set_defaults(func=lambda _args, proj, comp: print_machines_table(list_machines(proj, comp)))
+    command(list_parser, lambda _args, proj, comp: print_machines_table(list_machines(proj, comp)))
 
     # Machine-limits command
     limits_parser = subparsers.add_parser(
         "machine-limits",
         help="Show how many machines can be created in each allowed zone.",
     )
-    limits_parser.set_defaults(func=lambda _args, proj, comp: machine_limits(proj, comp))
+    command(limits_parser, lambda _args, proj, comp: machine_limits(proj, comp))
 
     # List-regions command
     regions_parser = subparsers.add_parser(
         "list-regions",
         help="List all available GCP regions.",
     )
-    regions_parser.set_defaults(func=lambda _args, proj, comp: list_regions(proj, comp))
+    command(regions_parser, lambda _args, proj, comp: list_regions(proj, comp))
 
     # List-full command
     list_full_parser = subparsers.add_parser("list-json", help="List full JSON info about all VM instances.")
-    list_full_parser.set_defaults(func=lambda _args, proj, comp: json.dump(list_machines_full(proj, comp), fp=sys.stdout))
+    command(list_full_parser, lambda _args, proj, comp: json.dump(list_machines_full(proj, comp), fp=sys.stdout))
 
     # Show-input-sample command
     sample_parser = subparsers.add_parser(
         "show-input-sample",
         help="Show a fake 10-line sample of the input expected by create.",
     )
-    sample_parser.set_defaults(func=lambda _args, _proj, _comp: show_input_sample())
+    command(sample_parser, lambda _args, _proj, _comp: show_input_sample())
 
     # Create command
     create_parser = subparsers.add_parser("create", help="Create a VM for every student in the file who has none.")
@@ -753,12 +762,12 @@ def main():
     # Stop-all command
     stop_parser = subparsers.add_parser("stop", help="Stop all running VM instances.")
     add_wait_flag(stop_parser)
-    stop_parser.set_defaults(func=lambda _args, proj, comp: stop_all_machines(proj, comp, args.wait_mode))
+    command(stop_parser, lambda args, proj, comp: stop_all_machines(proj, comp, args.wait_mode))
 
     # Continue-all command
     continue_parser = subparsers.add_parser("continue", help="Continue (start) all stopped VM instances.")
     add_wait_flag(continue_parser)
-    continue_parser.set_defaults(func=lambda _args, proj, comp: continue_all_machines(proj, comp, args.wait_mode))
+    command(continue_parser, lambda args, proj, comp: continue_all_machines(proj, comp, args.wait_mode))
 
     # Set-limit command
     set_limit_parser = subparsers.add_parser(
@@ -766,12 +775,12 @@ def main():
         help=f"Make every stopped VM turn itself off {MAX_RUN_SECONDS // 3600}h after each start.",
     )
     add_wait_flag(set_limit_parser)
-    set_limit_parser.set_defaults(func=lambda _args, proj, comp: set_limit_all_machines(proj, comp, args.wait_mode))
+    command(set_limit_parser, lambda args, proj, comp: set_limit_all_machines(proj, comp, args.wait_mode))
 
     # Delete-all command
     delete_parser = subparsers.add_parser("delete", help="Delete all VM instances.")
     add_wait_flag(delete_parser)
-    delete_parser.set_defaults(func=lambda _args, proj, comp: delete_all_machines(proj, comp, args.wait_mode))
+    command(delete_parser, lambda args, proj, comp: delete_all_machines(proj, comp, args.wait_mode))
 
     # Connect command
     connect_parser = subparsers.add_parser(
