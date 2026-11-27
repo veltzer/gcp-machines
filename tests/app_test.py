@@ -14,6 +14,7 @@ import sys
 import threading
 import unittest.mock
 import urllib.parse
+from typing import override
 
 import flask.testing
 import pytest
@@ -159,6 +160,7 @@ class BufferedClient(flask.testing.FlaskClient):
     send_from_directory) open until garbage collection.
     """
 
+    @override
     def open(self, *args, **kwargs):
         kwargs.setdefault("buffered", True)
         return super().open(*args, **kwargs)
