@@ -42,8 +42,13 @@ have at once, absent for DEFAULT_MACHINE_LIMIT), created, last_login.
 
 import dataclasses
 import datetime as dt
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
 from google.cloud import datastore
+
+if TYPE_CHECKING:
+    from google.cloud.datastore.entity import Entity
 
 LOGIN = "login"
 USER = "user"
@@ -59,14 +64,14 @@ MAX_MACHINE_LIMIT = 10
 UNINDEXED = ("password_hash", "picture")
 
 
-def key_name(entity):
+def key_name(entity: Entity):
     """ the name of a stored entity's key; an entity read from Datastore always has one """
     if entity.key is None:
         raise ValueError("entity has no key")
     return entity.key.name
 
 
-def now():
+def now() -> datetime:
     return dt.datetime.now(dt.UTC)
 
 
@@ -122,17 +127,17 @@ class Account:
         return DEFAULT_MACHINE_LIMIT if limit is None else limit
 
 
-def get_login(client, subject):
+def get_login(client: Any, subject: str):
     """ the login entity for a subject, or None """
     return client.get(client.key(LOGIN, subject))
 
 
-def get_user(client, email):
+def get_user(client: Any, email: str):
     """ the user entity for an email, or None """
     return client.get(client.key(USER, email))
 
 
-def load(client, subject):
+def load(client: Any, subject: str) -> Account | None:
     """ the Account signed in with subject, or None when there is no such login or it has no user """
     login = get_login(client, subject)
     if login is None or not login.get("user"):
@@ -141,7 +146,7 @@ def load(client, subject):
     return None if user is None else Account(login, user)
 
 
-def join(client, login):
+def join(client: Any, login: Any):
     """
     Attach a login whose email is proven to the user of that email,
     creating the user on first sight. Returns the user entity.
@@ -161,7 +166,7 @@ def join(client, login):
     return user
 
 
-def sign_in(client, subject, email, name, picture, verified, password_hash=None):
+def sign_in(client: Any, subject: str, email: str, name: str, picture: str | None, *, verified: bool, password_hash: str | None = None) -> Account:
     """
     Find or create the login of a sign-in, refresh the profile fields the
     provider owns (and the password hash of an email login, when given),
@@ -192,7 +197,7 @@ def sign_in(client, subject, email, name, picture, verified, password_hash=None)
     return Account(login, join(client, login))
 
 
-def touch(client, login, user):
+def touch(client: Any, login: Any, user: Any) -> None:
     """ record a sign-in """
     login["last_login"] = now()
     client.put(login)
@@ -200,12 +205,12 @@ def touch(client, login, user):
     client.put(user)
 
 
-def get_verification(client, email):
+def get_verification(client: Any, email: str):
     """ the link mailed to an address that has not been followed yet, or None """
     return client.get(client.key(VERIFICATION, email))
 
 
-def find_verification(client, token_hash):
+def find_verification(client: Any, token_hash: str):
     """ the pending verification a link's token (by its SHA-256) belongs to, or None """
     query = client.query(kind=VERIFICATION)
     query.add_filter(filter=datastore.query.PropertyFilter("token_hash", "=", token_hash))
@@ -213,14 +218,14 @@ def find_verification(client, token_hash):
     return found[0] if found else None
 
 
-def save_verification(client, email, token_hash):
+def save_verification(client: Any, email: str, token_hash: str) -> None:
     """ record that a link was just mailed to the address, voiding the one mailed before """
     pending = datastore.Entity(key=client.key(VERIFICATION, email), exclude_from_indexes=("sent_at",))
     pending.update({"token_hash": token_hash, "sent_at": now()})
     client.put(pending)
 
 
-def use_verification(client, email, token_hash):
+def use_verification(client: Any, email: str, token_hash: str) -> bool:
     """
     Spend the link: delete the pending verification of the address if it is
     still the one of this token. Returns whether it was, so of two requests
@@ -234,7 +239,7 @@ def use_verification(client, email, token_hash):
     return True
 
 
-def assign(client, email, owner, machine_limit=None):
+def assign(client: Any, email: str, owner: str, machine_limit: int | None = None) -> bool:
     """
     Set what an admin decides for the user of an email: the machine owner
     label (empty clears it, so the roster decides) and, when given, the
@@ -262,7 +267,7 @@ def assign(client, email, owner, machine_limit=None):
 NAME_MAX_LENGTH = 60
 
 
-def set_name(client, account, name):
+def set_name(client: Any, account: Any, name: str) -> None:
     """ the name a person chose, kept on their user """
     account.user["name"] = name
     client.put(account.user)

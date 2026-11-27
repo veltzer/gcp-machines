@@ -31,6 +31,7 @@ Whatever sends is a mailer: send(email, continue_url) and forget(email).
 
 import logging
 import secrets
+from typing import Any
 
 import google.auth.credentials
 from google.auth.transport.requests import AuthorizedSession
@@ -49,12 +50,12 @@ class VerificationError(Exception):
 class IdentityPlatform:
     """ the verification mail, sent through Identity Platform """
 
-    def __init__(self, credentials, project_id):
+    def __init__(self, credentials: Any, project_id: str | None) -> None:
         credentials = google.auth.credentials.with_scopes_if_required(credentials, SCOPES)
         self.session = AuthorizedSession(credentials)
         self.admin = f"{API}/projects/{project_id}"
 
-    def _post(self, url, body):
+    def _post(self, url: str, body: dict[str, Any]):
         response = self.session.post(url, json=body, timeout=HTTP_TIMEOUT)
         data = response.json()
         if not response.ok:
@@ -62,18 +63,18 @@ class IdentityPlatform:
             raise VerificationError(f"Identity Platform: {message}")
         return data
 
-    def _lookup(self, email):
+    def _lookup(self, email: str):
         """ the Identity Platform user for an address, or None """
         users = self._post(f"{self.admin}/accounts:lookup", {"email": [email]}).get("users", [])
         return users[0] if users else None
 
-    def forget(self, email):
+    def forget(self, email: str) -> None:
         """ the address is proven (or its link replaced): drop its Identity Platform user, if any """
         user = self._lookup(email)
         if user is not None:
             self._post(f"{self.admin}/accounts:delete", {"localId": user["localId"]})
 
-    def send(self, email, continue_url):
+    def send(self, email: str, continue_url: str) -> None:
         """ mail a verification link to the address, voiding any earlier one """
         self.forget(email)
         password = secrets.token_urlsafe(32)
@@ -91,8 +92,8 @@ class IdentityPlatform:
 class LogMailer:
     """ local development: the link goes to the server log instead of a mailbox """
 
-    def send(self, email, continue_url):
+    def send(self, email: str, continue_url: str) -> None:
         logger.warning("verification link for %s: %s", email, continue_url)
 
-    def forget(self, email):
+    def forget(self, email: str) -> None:
         pass

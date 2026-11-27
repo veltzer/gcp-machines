@@ -34,7 +34,7 @@ STUDENTS_FILE = os.path.join(
     "students.txt",
 )
 
-def read_students():
+def read_students() -> list[tuple[str, str | None]]:
     """
     Reads the students file and returns a list of (owner, email) pairs,
     where email is None when a line has only the owner name. Blank lines and
@@ -64,7 +64,7 @@ ROLE = "roles/iap.httpsResourceAccessor"
 SERVICE = "machines"
 REGION = "us-central1"
 
-def require_default_account(credentials):
+def require_default_account(credentials: Any) -> None:
     """
     Refuses to run unless we are authenticating as the default (personal)
     account rather than a service account.
@@ -83,7 +83,7 @@ def require_default_account(credentials):
             "GOOGLE_APPLICATION_CREDENTIALS / open a fresh shell), then re-run."
         )
 
-def get_project_number(project_id, credentials):
+def get_project_number(project_id: str | None, credentials: Any):
     """
     Returns the numeric project number for a project id. The IAP IAM resource
     path is canonically built from the project number.
@@ -92,13 +92,13 @@ def get_project_number(project_id, credentials):
     project = crm.projects().get(projectId=project_id).execute()
     return project["projectNumber"]
 
-def iap_resource(project_number):
+def iap_resource(project_number: str) -> str:
     """
     Returns the IAM resource path of the IAP-protected Cloud Run service.
     """
     return f"projects/{project_number}/iap_web/cloud_run-{REGION}/services/{SERVICE}"
 
-def read_student_emails():
+def read_student_emails() -> list[str]:
     """
     Returns the emails from the students file. A clearly invalid email is a
     fatal error (a typo must not end up granted); a student with no email at
@@ -114,20 +114,20 @@ def read_student_emails():
             emails.append(email)
     return emails
 
-def get_policy(iap, resource):
+def get_policy(iap: Any, resource: str):
     """
     Returns the current IAM policy of the IAP resource.
     """
     return iap.v1().getIamPolicy(resource=resource, body={}).execute()
 
-def set_policy(iap, resource, policy):
+def set_policy(iap: Any, resource: str, policy: dict[str, Any]):
     """
     Replaces the IAM policy of the IAP resource. The policy carries the etag
     from get_policy so concurrent modifications fail instead of clobbering.
     """
     return iap.v1().setIamPolicy(resource=resource, body={"policy": policy}).execute()
 
-def get_role_binding(policy):
+def get_role_binding(policy: dict[str, Any]):
     """
     Returns the members list of the access-role binding inside a policy,
     creating an empty binding in the policy if there is none.
@@ -140,7 +140,7 @@ def get_role_binding(policy):
     policy["bindings"].append(binding)
     return members
 
-def iap_enabled(project_id, credentials):
+def iap_enabled(project_id: str, credentials: Any) -> bool | None:
     """
     Returns whether IAP is currently enabled on the Cloud Run service, or
     None if that could not be determined.
@@ -154,7 +154,7 @@ def iap_enabled(project_id, credentials):
     except (HttpError, google.auth.exceptions.GoogleAuthError, OSError):
         return None
 
-def status(project_id, iap, resource, credentials):
+def status(project_id: str, iap: Any, resource: str, credentials: Any) -> None:
     """
     Prints whether IAP is enabled and who currently holds web access.
     """
@@ -173,7 +173,7 @@ def status(project_id, iap, resource, credentials):
     else:
         print(f"No members hold {ROLE}; nobody can enter the app while IAP is on.")
 
-def grant(iap, resource, emails):
+def grant(iap: Any, resource: str, emails: list[str]) -> None:
     """
     Grants IAP web access to the given emails. Already-granted emails are
     skipped. Prints what happened.
@@ -195,7 +195,7 @@ def grant(iap, resource, emails):
     for email in added:
         print(f"Granted: {email}")
 
-def revoke(iap, resource, emails):
+def revoke(iap: Any, resource: str, emails: list[str]) -> None:
     """
     Revokes IAP web access from the given emails. Prints what happened.
     """
@@ -216,7 +216,7 @@ def revoke(iap, resource, emails):
     for email in removed:
         print(f"Revoked: {email}")
 
-def push_mapping(project_id):
+def push_mapping(project_id: str) -> None:
     """
     Replaces the email -> owner mapping in Datastore (kind "student", key =
     email) with the students file content. The app reads this mapping to
@@ -240,7 +240,7 @@ def push_mapping(project_id):
         client.put(entity)
     print(f"Datastore mapping updated: {len(wanted)} students, {removed} stale entries removed.")
 
-def sync(iap, resource, prune, project_id):
+def sync(iap: Any, resource: str, project_id: str, *, prune: bool) -> None:
     """
     Grants access to every email in the students file and pushes the
     email -> owner mapping to Datastore for the app. With prune, also
@@ -248,10 +248,10 @@ def sync(iap, resource, prune, project_id):
     serviceAccount: or domain:, are never touched).
     """
     emails = read_student_emails()
-    sync_grants(iap, resource, prune, emails)
+    sync_grants(iap, resource, emails, prune=prune)
     push_mapping(project_id)
 
-def sync_grants(iap, resource, prune, emails):
+def sync_grants(iap: Any, resource: str, emails: list[str], *, prune: bool) -> None:
     """
     Makes the IAP role grants match the given emails; see sync.
     """
@@ -277,7 +277,7 @@ def sync_grants(iap, resource, prune, emails):
     for member in extra:
         print(f"Not in file (kept, use --prune to revoke): {member.removeprefix('user:')}")
 
-def list_brands(iap, project_number):
+def list_brands(iap: Any, project_number: str):
     """
     Returns the OAuth brands (consent screens) of the project. A project has
     at most one.
@@ -296,7 +296,7 @@ def list_brands(iap, project_number):
         raise
     return response.get("brands", [])
 
-def print_brand(brand):
+def print_brand(brand: dict[str, Any]) -> None:
     """
     Prints one OAuth brand in a readable form.
     """
@@ -311,7 +311,7 @@ def print_brand(brand):
             "  External and publish it in the console OAuth consent screen page."
         )
 
-def consent_status(iap, project_number):
+def consent_status(iap: Any, project_number: str) -> None:
     """
     Prints the OAuth consent screen (brand) of the project, if any.
     """
@@ -323,7 +323,7 @@ def consent_status(iap, project_number):
         print("OAuth consent screen:")
         print_brand(brand)
 
-def consent_create(iap, project_number, title, email):
+def consent_create(iap: Any, project_number: str, title: str, email: str) -> None:
     """
     Creates the OAuth consent screen (brand) of the project unless one
     already exists. The support email must be owned by the account running
@@ -342,7 +342,7 @@ def consent_create(iap, project_number, title, email):
     print("Created OAuth consent screen:")
     print_brand(brand)
 
-def show_input_sample():
+def show_input_sample() -> None:
     """
     Prints a sample of the input expected in data.gi/students.txt.
     """
@@ -358,7 +358,7 @@ def command(parser: argparse.ArgumentParser, run: Command) -> None:
     parser.set_defaults(func=run)
 
 
-def main():
+def main() -> None:
     """Main entry point and command-line parser."""
     parser = argparse.ArgumentParser(description="Manage IAP access to the Cloud Run app.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -387,7 +387,7 @@ def main():
         action="store_true",
         help="Also revoke user grants that are not in the file.",
     )
-    command(sync_parser, lambda args, ctx: sync(ctx["iap"], ctx["resource"], args.prune, ctx["project_id"]))
+    command(sync_parser, lambda args, ctx: sync(ctx["iap"], ctx["resource"], ctx["project_id"], prune=args.prune))
 
     # Push-roster command
     push_parser = subparsers.add_parser(

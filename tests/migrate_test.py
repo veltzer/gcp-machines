@@ -8,14 +8,21 @@ import importlib.util
 import os
 import sys
 import unittest.mock
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from google.cloud import datastore
 
+if TYPE_CHECKING:
+    from types import ModuleType
+    from unittest.mock import Mock
+
+    from google.cloud.datastore.entity import Entity
+
 SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "migrate_verified_only.py")
 
 
-def load_script():
+def load_script() -> ModuleType:
     spec = importlib.util.spec_from_file_location("migrate_verified_only", SCRIPT)
     assert spec is not None
     assert spec.loader is not None
@@ -25,7 +32,7 @@ def load_script():
 
 
 class FakeKey:
-    def __init__(self, kind, name):
+    def __init__(self, kind: str, name: str) -> None:
         self.kind = kind
         self.name = name
 
@@ -33,23 +40,23 @@ class FakeKey:
 class FakeClient:
     """ the corner of datastore.Client the script uses, over a dict of logins """
 
-    def __init__(self, logins):
+    def __init__(self, logins: list[Any]) -> None:
         self.logins = {login.key.name: login for login in logins}
 
-    def query(self, kind):
+    def query(self, kind: str) -> Mock:
         assert kind == "login"
         return unittest.mock.Mock(fetch=lambda: list(self.logins.values()))
 
-    def put_multi(self, entities):
+    def put_multi(self, entities: list[Any]) -> None:
         for entity in entities:
             self.logins[entity.key.name] = entity
 
-    def delete_multi(self, keys):
+    def delete_multi(self, keys: list[Any]) -> None:
         for key in keys:
             del self.logins[key.name]
 
 
-def login(subject, **fields):
+def login(subject: str, **fields: Any) -> Entity:
     entity = datastore.Entity(key=FakeKey("login", subject))
     entity.update({"email": subject.split(":", 1)[1], "name": "n", "picture": ""} | fields)
     return entity
@@ -58,7 +65,7 @@ def login(subject, **fields):
 OLD_FIELDS = {"account_id": "a1", "verification_sent": "then", "verification_token": "t", "verified": True}
 
 
-def run(logins, *argv):
+def run(logins: list[Any], *argv: str) -> tuple[FakeClient, int | None, str]:
     """ runs main() against the logins with the given arguments: (client, exit status, printed output) """
     module = load_script()
     client = FakeClient(logins)
@@ -82,7 +89,7 @@ def run(logins, *argv):
     return client, status, "\n".join(out)
 
 
-def mixed():
+def mixed() -> list[Entity]:
     return [
         login("google:1", user="a@x.com", verified=True),
         login("google:2", verified=False),
@@ -93,7 +100,7 @@ def mixed():
     ]
 
 
-def test_plan_finds_the_unproven_logins():
+def test_plan_finds_the_unproven_logins() -> None:
     module = load_script()
     delete, strip, assigned = module.plan(mixed())
     assert sorted(entity.key.name for entity in delete) == ["email:b@x.com", "email:e@x.com", "google:2"]
@@ -101,7 +108,7 @@ def test_plan_finds_the_unproven_logins():
     assert assigned == []
 
 
-def test_a_dry_run_changes_nothing():
+def test_a_dry_run_changes_nothing() -> None:
     client, status, out = run(mixed())
     assert status == 0
     assert "delete login google:2 (no user)" in out
@@ -112,7 +119,7 @@ def test_a_dry_run_changes_nothing():
     assert "verified" in client.logins["email:c@x.com"]
 
 
-def test_apply_deletes_the_unproven_and_strips_the_rest():
+def test_apply_deletes_the_unproven_and_strips_the_rest() -> None:
     client, status, _out = run(mixed(), "--apply")
     assert status == 0
     assert sorted(client.logins) == ["email:c@x.com", "github:3", "google:1"]
@@ -120,7 +127,7 @@ def test_apply_deletes_the_unproven_and_strips_the_rest():
     assert "verified" not in client.logins["google:1"]
 
 
-def test_it_is_safe_to_run_again():
+def test_it_is_safe_to_run_again() -> None:
     client, _status, _out = run(mixed(), "--apply")
     again, status, out = run(list(client.logins.values()), "--apply")
     assert status == 0
@@ -129,7 +136,7 @@ def test_it_is_safe_to_run_again():
 
 
 @pytest.mark.parametrize("assignment", [{"owner": "raz"}, {"machine_limit": 3}, {"owner": "raz", "machine_limit": 2}])
-def test_an_unproven_login_with_an_assignment_is_kept_and_nothing_is_changed(assignment):
+def test_an_unproven_login_with_an_assignment_is_kept_and_nothing_is_changed(assignment: Any) -> None:
     logins = [*mixed(), login("email:dana@x.com", verified=False, **assignment)]
     client, status, out = run(logins, "--apply")
     assert status == 1
@@ -139,7 +146,7 @@ def test_an_unproven_login_with_an_assignment_is_kept_and_nothing_is_changed(ass
     assert "verified" in client.logins["email:c@x.com"]
 
 
-def test_it_refuses_a_service_account():
+def test_it_refuses_a_service_account() -> None:
     module = load_script()
     credentials = unittest.mock.Mock(service_account_email="app@test-project.iam.gserviceaccount.com")
     with pytest.raises(SystemExit, match="Refusing to run as service account"):

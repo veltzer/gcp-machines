@@ -21,6 +21,7 @@ import argparse
 import base64
 import os
 import typing
+from typing import Any
 
 import google.auth
 from googleapiclient import discovery
@@ -56,13 +57,13 @@ def get_crm_client() -> typing.Any:
     credentials, _ = google.auth.default()
     return discovery.build("cloudresourcemanager", "v1", credentials=credentials)
 
-def service_account_email(project_id):
+def service_account_email(project_id: str) -> str:
     """
     Returns the deterministic email of our service account for this project.
     """
     return f"{SERVICE_ACCOUNT_NAME}@{project_id}.iam.gserviceaccount.com"
 
-def find_service_account(project_id, iam_client):
+def find_service_account(project_id: str, iam_client: Any):
     """
     Returns the service account resource dict if our SA exists in the project,
     or None if it does not.
@@ -73,7 +74,7 @@ def find_service_account(project_id, iam_client):
     ).execute().get("accounts", [])
     return next((acc for acc in accounts if acc.get("email") == email), None)
 
-def create_service_account(project_id, iam_client):
+def create_service_account(project_id: str, iam_client: Any) -> str:
     """
     Creates a new service account, deleting any existing one with the same name.
     """
@@ -96,7 +97,7 @@ def create_service_account(project_id, iam_client):
     print("Service account created successfully.")
     return email
 
-def grant_roles(project_id, email, crm_client):
+def grant_roles(project_id: str, email: str, crm_client: Any) -> None:
     """
     Grants the required IAM roles to the service account.
     """
@@ -119,7 +120,7 @@ def grant_roles(project_id, email, crm_client):
     ).execute()
     print("All roles granted successfully.")
 
-def list_granted_roles(project_id, email, crm_client):
+def list_granted_roles(project_id: str, email: str, crm_client: Any):
     """
     Returns the sorted list of roles currently bound to the service account in
     the project IAM policy.
@@ -146,7 +147,7 @@ def list_granted_roles(project_id, email, crm_client):
     }
     return sorted(roles)
 
-def create_and_download_key(project_id, email, iam_client):
+def create_and_download_key(project_id: str, email: str, iam_client: Any) -> None:
     """
     Creates a new key for the service account and saves it to the credentials directory.
     """
@@ -166,7 +167,7 @@ def create_and_download_key(project_id, email, iam_client):
     print(f"Key successfully created and saved to {key_path}")
     print("IMPORTANT: Set the GOOGLE_APPLICATION_CREDENTIALS environment variable to this path.")
 
-def handle_create(_args, project_id):
+def handle_create(_args, project_id: str) -> None:
     """Create the service account, grant roles, and download a key."""
     iam_client = get_iam_client()
     crm_client = get_crm_client()
@@ -174,7 +175,7 @@ def handle_create(_args, project_id):
     grant_roles(project_id, email, crm_client)
     create_and_download_key(project_id, email, iam_client)
 
-def handle_grant(_args, project_id):
+def handle_grant(_args, project_id: str) -> None:
     """Grant all roles to the existing service account without recreating it."""
     iam_client = get_iam_client()
     email = service_account_email(project_id)
@@ -184,7 +185,7 @@ def handle_grant(_args, project_id):
         )
     grant_roles(project_id, email, get_crm_client())
 
-def handle_show(_args, project_id):
+def handle_show(_args, project_id: str) -> None:
     """Show the service account and the active-credentials identity."""
     iam_client = get_iam_client()
     email = service_account_email(project_id)
@@ -200,7 +201,7 @@ def handle_show(_args, project_id):
     active = getattr(credentials, "service_account_email", None)
     print(f"Active credentials:    {active or '(user credentials)'}")
 
-def handle_roles(_args, project_id):
+def handle_roles(_args, project_id: str) -> None:
     """List the roles currently bound to the service account."""
     email = service_account_email(project_id)
     roles = list_granted_roles(project_id, email, get_crm_client())
@@ -210,7 +211,7 @@ def handle_roles(_args, project_id):
     for role in roles:
         print(role)
 
-def handle_delete(_args, project_id):
+def handle_delete(_args, project_id: str) -> None:
     """Delete the service account if it exists."""
     iam_client = get_iam_client()
     email = service_account_email(project_id)
@@ -224,7 +225,7 @@ def handle_delete(_args, project_id):
     ).execute()
     print("Service account deleted.")
 
-def main():
+def main() -> None:
     """Main entry point and command-line parser."""
     parser = argparse.ArgumentParser(
         description="Manage the application service account and its IAM permissions."

@@ -21,11 +21,17 @@ import google.auth
 import google_auth_httplib2
 import httplib2
 import markupsafe
+from flask.wrappers import Response
 from google.cloud import datastore
 from googleapiclient import discovery
 from googleapiclient.errors import HttpError
 
 from src import auth, provision, users, verification
+
+if typing.TYPE_CHECKING:
+    from werkzeug.wrappers.response import Response
+
+    from src.users import Account
 
 HTML_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "html")
 
@@ -44,7 +50,7 @@ def load_build_info():
         return {"deploy_date": "unknown", "git_describe": "dev"}
 
 
-def secret_key():
+def secret_key() -> str:
     """ the key that signs the session cookie: required on Cloud Run, random locally """
     key = os.environ.get("SECRET_KEY")
     if key:
@@ -125,12 +131,12 @@ def email_to_owner():
     return _mapping_cache["mapping"]
 
 
-def is_admin(user):
+def is_admin(user: Account) -> bool:
     """ admins see and control all machines """
     return user.email.lower() in ADMIN_EMAILS
 
 
-def assignment(user):
+def assignment(user: Account):
     """
     The machine owner label this account may control and where that comes
     from: ("<owner>", "assigned") when an admin assigned it on the Students
@@ -146,7 +152,7 @@ def assignment(user):
     return None, None
 
 
-def owner_of(user):
+def owner_of(user: Any):
     """ the machine owner label this account may control, or None """
     return assignment(user)[0]
 
@@ -161,7 +167,7 @@ METHODS = {"google": "Google", "github": "GitHub", "email": "Password", "dev": "
 METHOD_ICONS = {"google": "google", "github": "github", "email": "email", "dev": "email"}
 
 
-def sign_in_method(user):
+def sign_in_method(user: Any):
     """ how this account signed in, for the top bar: {"name", "icon"} """
     name = "email and password" if user.method == "email" else METHODS.get(user.method, user.method)
     return {"name": name, "icon": METHOD_ICONS.get(user.method, "email")}
@@ -171,7 +177,7 @@ def sign_in_method(user):
 PROVIDER_IDS = {"google": "Google ID", "github": "GitHub user ID", "email": "Email", "dev": "Email"}
 
 
-def describe_login(login, current, email):
+def describe_login(login: Any, current: Any, email: str):
     """ one way of signing in, as the account panel shows it """
     method, _, provider_id = login.key.name.partition(":")
     last = login.get("last_login")
@@ -188,7 +194,7 @@ def describe_login(login, current, email):
     }
 
 
-def account_details(user, admin):
+def account_details(user: Any, *, admin: bool):
     """
     What the account panel under the top bar's name shows: who is signed in,
     in which role, which machine they get and why, and every way this user
@@ -215,7 +221,7 @@ def account_details(user, admin):
     }
 
 
-def students_table(machines):
+def students_table(machines: list[dict[str, Any]]):
     """
     Every user (with all the ways they sign in), then the roster students
     who have not signed up: what the admin sees on the Students table. Also
@@ -256,7 +262,7 @@ def students_table(machines):
 
 
 @app.before_request
-def redirect_to_canonical_host():
+def redirect_to_canonical_host() -> Response | None:
     """
     Cloud Run also answers on its run.app hostnames. Send those to the custom
     domain first, so there is one origin for the session cookie and the
@@ -291,7 +297,7 @@ CONTENT_SECURITY_POLICY = (
 PICTURE_HOSTS = (".googleusercontent.com", "avatars.githubusercontent.com")
 
 
-def picture_url(account):
+def picture_url(account: Any):
     """ the account's profile photo URL when it is an https one on a photo host, else "" """
     url = account.picture
     parts = urllib.parse.urlsplit(url)
@@ -302,7 +308,7 @@ def picture_url(account):
 
 
 @app.after_request
-def security_headers(response):
+def security_headers(response: flask.Response):
     """
     Headers every response carries. The CSP goes on HTML pages only: an SVG
     under /static has its own inline <style>, which the policy would block.
@@ -320,12 +326,12 @@ def security_headers(response):
 
 
 @app.route("/app/health", methods=["GET"])
-def health():
+def health() -> str:
     return "ok"
 
 
 @app.route("/app/version", methods=["GET"])
-def version():
+def version() -> Response:
     """ what is serving: the deploy stamp plus the Cloud Run revision """
     info = dict(app.config["BUILD_INFO"])
     # Cloud Run injects the serving revision name at runtime
@@ -334,7 +340,7 @@ def version():
 
 
 @app.route("/api/config", methods=["GET"])
-def api_config():
+def api_config() -> Response:
     """ what the sign-in page needs: which ways in this server offers """
     return flask.jsonify({
         "signed_in": auth.current_user() is not None,
@@ -376,7 +382,7 @@ def get_machines():
     return data
 
 
-def turns_off_at(instance):
+def turns_off_at(instance: dict[str, Any]) -> str | None:
     """
     When a running machine will turn itself off (UTC, ISO 8601), or None.
     Compute Engine stops a machine maxRunDuration after it last entered
@@ -392,19 +398,19 @@ def turns_off_at(instance):
 
 
 @app.route("/verify", methods=["GET"])
-def verify_page():
+def verify_page() -> Response:
     """ where the mailed link leads: its page asks for the password (the token is in the address, see verify.html) """
     return flask.send_from_directory(HTML_DIR, "verify.html")
 
 
 @app.route("/privacy", methods=["GET"])
-def privacy_page():
+def privacy_page() -> Response:
     """ what the site keeps about its users; public, Google's consent screen links to it """
     return flask.send_from_directory(HTML_DIR, "privacy.html")
 
 
 @app.route("/", methods=["GET"])
-def root():
+def root() -> Response | str:
     """ the sign-in page, or the machines the signed-in user may control """
     user = auth.current_user()
     if user is None:
@@ -429,7 +435,7 @@ def root():
         admin=admin,
         sign_in=sign_in_method(user),
         has_picture=bool(picture_url(user)),
-        account=account_details(user, admin),
+        account=account_details(user, admin=admin),
         students=students,
         pending=pending,
         owners=owners,
@@ -443,12 +449,12 @@ def root():
     )
 
 
-def known_owners(machines):
+def known_owners(machines: list[dict[str, Any]]):
     """ the owner labels an admin may assign: the roster's and those of existing machines """
     return sorted(set(email_to_owner().values()) | {m["owner"] for m in machines if m["owner"] != "unknown"})
 
 
-def machines_summary(machines):
+def machines_summary(machines: list[dict[str, Any]]) -> dict[str, int]:
     """
     What the admin sees above the machines: how many there are, how many
     are up (running, or on their way up) and stopped, and how many roster
@@ -465,7 +471,7 @@ def machines_summary(machines):
     }
 
 
-def get_instance_for(user, name, zone):
+def get_instance_for(user: Any, name: str, zone: str):
     """
     The live instance, if the user may control it: an admin any, a student
     only one whose owner label is their assignment. Aborts otherwise.
@@ -482,7 +488,7 @@ def get_instance_for(user, name, zone):
 
 @app.route("/account/picture", methods=["GET"])
 @auth.login_required
-def account_picture():
+def account_picture() -> Response:
     """
     The signed-in person's photo, as a redirect to it: the page's <img> has
     a fixed address while the photo's own is the provider's.
@@ -497,7 +503,7 @@ def account_picture():
 
 @app.route("/key", methods=["GET"])
 @auth.login_required
-def download_key():
+def download_key() -> Response:
     """ the machine's private ssh key, as a file, for its student or an admin """
     name = flask.request.args["name"]
     get_instance_for(auth.current_user(), name, flask.request.args["zone"])
@@ -516,7 +522,7 @@ def download_key():
 
 @app.route("/admin/assign", methods=["POST"])
 @auth.login_required
-def assign():
+def assign() -> Response:
     """
     Set, for a user, which owner label its machines carry (empty: the roster decides) and how many machines it may
     have at once. Admins only.
@@ -539,7 +545,7 @@ def assign():
 
 @app.route("/account/name", methods=["POST"])
 @auth.login_required
-def set_name():
+def set_name() -> Response:
     """ the signed-in person chooses what they are called """
     name = " ".join(flask.request.form.get("name", "").split())
     if not name or len(name) > users.NAME_MAX_LENGTH or not name.isprintable():
@@ -548,7 +554,7 @@ def set_name():
     return done(f"You are now called {name}.")
 
 
-def done(message):
+def done(message: str) -> Response:
     """ back to the machines page, which shows the message on top """
     flask.flash(message)
     return flask.redirect(flask.url_for("root"))
@@ -565,7 +571,7 @@ def instance_from_form():
 
 @app.route("/create", methods=["POST"])
 @auth.login_required
-def create():
+def create() -> Response:
     """
     Create a machine for the signed-in account, under the owner label its
     assignment names, while it has fewer than its machine limit. It gets
@@ -600,7 +606,7 @@ def create():
 
 @app.route("/start", methods=["POST"])
 @auth.login_required
-def start():
+def start() -> Response:
     """ start a stopped machine, or resume a suspended one """
     name, zone, instance = instance_from_form()
     if instance["status"] == "TERMINATED":
@@ -617,7 +623,7 @@ def start():
 
 @app.route("/stop", methods=["POST"])
 @auth.login_required
-def stop():
+def stop() -> Response:
     """ stop a running machine: its disk stays, what runs in memory does not """
     name, zone, instance = instance_from_form()
     if instance["status"] != "RUNNING":
@@ -628,7 +634,7 @@ def stop():
 
 @app.route("/delete", methods=["POST"])
 @auth.login_required
-def delete():
+def delete() -> Response:
     """ delete a machine, its disk and its key, for good """
     name, zone, _instance = instance_from_form()
     compute.instances().delete(project=project_id, zone=zone, instance=name).execute(http=api_http())
@@ -636,14 +642,14 @@ def delete():
     return done(f"Deleting machine {name} and everything on it.")
 
 
-def busy(name, instance):
+def busy(name: str, instance: dict[str, Any]) -> str:
     """ what to say when the machine is not in a state the action applies to """
     status = "STOPPED" if instance["status"] == "TERMINATED" else instance["status"]
     return f"Machine {name} is {status} right now. Refresh and try again in a minute."
 
 
 @app.errorhandler(HttpError)
-def handle_gcp_error(error):
+def handle_gcp_error(error: HttpError) -> tuple[str, int]:
     """ show google api failures as a readable message instead of a stack trace """
     return (
         (

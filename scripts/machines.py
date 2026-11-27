@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 import typing
+from argparse import ArgumentParser
 from collections.abc import Callable
 from typing import Any
 
@@ -34,7 +35,7 @@ STUDENTS_FILE = os.path.join(
     "students.txt",
 )
 
-def read_students():
+def read_students() -> list[tuple[str, str | None]]:
     """
     Reads the students file and returns a list of (owner, email) pairs,
     where email is None when a line has only the owner name. Blank lines and
@@ -75,7 +76,7 @@ MACHINE_QUOTA_METRICS = provision.MACHINE_QUOTA_METRICS
 MAX_RUN_SECONDS = provision.MAX_RUN_SECONDS
 RUN_LIMIT = provision.RUN_LIMIT
 
-def require_default_account(credentials):
+def require_default_account(credentials: Any) -> None:
     """
     Refuses to run unless we are authenticating as the default (personal)
     account rather than a service account.
@@ -99,7 +100,7 @@ def get_compute_client() -> typing.Any:
     credentials, _ = google.auth.default()
     return discovery.build("compute", "v1", credentials=credentials)
 
-def get_all_instances(project_id, compute):
+def get_all_instances(project_id: str, compute: Any):
     """
     Returns the raw list of all instances in the project.
     """
@@ -115,13 +116,13 @@ def get_all_instances(project_id, compute):
         )
     return all_instances
 
-def list_machines_full(project_id, compute):
+def list_machines_full(project_id: str, compute: Any):
     """
     Lists all instances in the project, returning the full JSON info for each.
     """
     return get_all_instances(project_id, compute)
 
-def list_machines(project_id, compute):
+def list_machines(project_id: str, compute: Any):
     """
     Lists all instances in the project, returning only the student (owner)
     and public IP for each.
@@ -136,7 +137,7 @@ def list_machines(project_id, compute):
         })
     return data
 
-def print_machines_table(data):
+def print_machines_table(data: list[dict[str, Any]]) -> None:
     """
     Prints a list of {"owner", "ip"} dicts as an aligned text table.
     """
@@ -158,7 +159,7 @@ WAIT_NONE = "none"
 WAIT_EACH = "each"
 WAIT_ALL = "all"
 
-def wait_for_operation(project_id, compute, zone, op_name, action="finish"):
+def wait_for_operation(project_id: str, compute: Any, zone: str, op_name: str, action: str = "finish") -> None:
     """
     Blocks until a single zone operation finishes, raising on error. action
     describes what we're waiting for (e.g. "come up", "be deleted") and is used
@@ -175,7 +176,7 @@ def wait_for_operation(project_id, compute, zone, op_name, action="finish"):
             return
         time.sleep(1)
 
-def wait_for_operations(project_id, compute, operations, action="finish"):
+def wait_for_operations(project_id: str, compute: Any, operations: list[tuple[str, str]], action: str = "finish") -> None:
     """
     Blocks until every (zone, op_name) operation in the list finishes. action
     describes what we're waiting for (e.g. "come up", "be deleted") and is used
@@ -187,7 +188,7 @@ def wait_for_operations(project_id, compute, operations, action="finish"):
     for zone, op_name in operations:
         wait_for_operation_quiet(project_id, compute, zone, op_name)
 
-def wait_for_operation_quiet(project_id, compute, zone, op_name):
+def wait_for_operation_quiet(project_id: str, compute: Any, zone: str, op_name: str) -> None:
     """
     Blocks until a single zone operation finishes, raising on error, without
     printing a message. Used by wait_for_operations, which prints its own
@@ -208,13 +209,13 @@ def get_secrets_client() -> typing.Any:
     credentials, _ = google.auth.default()
     return discovery.build("secretmanager", "v1", credentials=credentials)
 
-def delete_machine_keys(project_id, secrets, instance_names):
+def delete_machine_keys(project_id: str, secrets: Any, instance_names: list[str]) -> None:
     """ Deletes the key secrets of the given instances, where they exist. """
     for name in instance_names:
         if provision.delete_key(secrets, project_id, name):
             print(f"Deleted key of {name}.")
 
-def stop_all_machines(project_id, compute, wait_mode):
+def stop_all_machines(project_id: str, compute: Any, wait_mode: str) -> None:
     """
     Stops all running compute instances in the project.
 
@@ -241,7 +242,7 @@ def stop_all_machines(project_id, compute, wait_mode):
     if wait_mode == WAIT_ALL:
         wait_for_operations(project_id, compute, operations, "stop")
 
-def has_run_limit(instance):
+def has_run_limit(instance: dict[str, Any]):
     """ whether the instance already carries RUN_LIMIT """
     scheduling = instance.get("scheduling", {})
     return (
@@ -249,7 +250,7 @@ def has_run_limit(instance):
         and scheduling.get("instanceTerminationAction") == RUN_LIMIT["instanceTerminationAction"]
     )
 
-def set_limit_all_machines(project_id, compute, wait_mode):
+def set_limit_all_machines(project_id: str, compute: Any, wait_mode: str) -> None:
     """
     Applies RUN_LIMIT to every machine that does not carry it yet, for
     machines created before it existed. Compute Engine only changes the
@@ -287,7 +288,7 @@ def set_limit_all_machines(project_id, compute, wait_mode):
             "Stop them (python scripts/machines.py stop) and run set-limit again."
         )
 
-def continue_all_machines(project_id, compute, wait_mode):
+def continue_all_machines(project_id: str, compute: Any, wait_mode: str) -> None:
     """
     Continues (starts) all stopped compute instances in the project.
 
@@ -314,7 +315,7 @@ def continue_all_machines(project_id, compute, wait_mode):
     if wait_mode == WAIT_ALL:
         wait_for_operations(project_id, compute, operations, "come up")
 
-def delete_all_machines(project_id, compute, wait_mode):
+def delete_all_machines(project_id: str, compute: Any, wait_mode: str) -> None:
     """
     Deletes all compute instances in the project, and their ssh key secrets.
 
@@ -351,7 +352,7 @@ def delete_all_machines(project_id, compute, wait_mode):
 # by zone_machine_limit so zones sharing a region don't re-fetch it.
 _REGION_CPU_LIMIT_CACHE: dict[str, int | None] = {}
 
-def zone_machine_limit(project_id, compute, zone):
+def zone_machine_limit(project_id: str, compute: Any, zone: str) -> int | None:
     """
     Returns the absolute cap on how many machines of our standard machine
     type can be created in a zone, based on the region's CPU quotas, or None
@@ -374,7 +375,7 @@ def zone_machine_limit(project_id, compute, zone):
     cpu_limit = _REGION_CPU_LIMIT_CACHE[region]
     return None if cpu_limit is None else cpu_limit // MACHINE_VCPUS
 
-def list_regions(project_id, compute):
+def list_regions(project_id: str, compute: Any) -> None:
     """
     Lists and prints the names of all available Google Cloud regions.
     """
@@ -382,7 +383,7 @@ def list_regions(project_id, compute):
     for region in regions["items"]:
         print(region["name"])
 
-def machine_limits(project_id, compute):
+def machine_limits(project_id: str, compute: Any) -> None:
     """
     For every zone in the project, prints the absolute cap on how many
     machines of our standard machine type can be created there.
@@ -406,7 +407,7 @@ def machine_limits(project_id, compute):
     for zone, allowed in rows:
         print(f"{zone:<{zone_width}}  {allowed}")
 
-def show_input_sample():
+def show_input_sample() -> None:
     """
     Prints a fake 10-line sample of the input expected in the students file,
     so the user can see what a valid file looks like. Each line is an owner
@@ -422,7 +423,7 @@ def show_input_sample():
     for owner in owners:
         print(f"{owner} {owner}@gmail.com")
 
-def create_command(args, project_id, compute):
+def create_command(args: argparse.Namespace, project_id: str, compute: Any) -> None:
     """
     Creates a VM for every owner in the student list who has none yet (their
     machine number 1), allocating owners to zones up to each zone's machine
@@ -505,7 +506,7 @@ def create_command(args, project_id, compute):
 # read live from the Compute API at the moment of connecting. Suspending and
 # resuming a machine changes its IP, so anything cached would be stale.
 
-def add_target_arguments(subparser):
+def add_target_arguments(subparser: ArgumentParser) -> None:
     """
     Adds the arguments shared by every command that ssh-es to a machine: which
     owner to reach, as which user, and with which key.
@@ -522,7 +523,7 @@ def add_target_arguments(subparser):
         help="Private key to use (default: the machine's own key, fetched from Secret Manager).",
     )
 
-def run_ssh(project_id, name, key, ssh_args):
+def run_ssh(project_id: str, name: str, key: str, ssh_args: list[str]):
     """
     Runs ssh with the given arguments after "-i <key>" and exits with its
     status. Without --key, the machine's own private key is fetched from
@@ -544,7 +545,7 @@ def run_ssh(project_id, name, key, ssh_args):
         status = call_ssh(path, ssh_args)
     sys.exit(status)
 
-def call_ssh(key_path, ssh_args):
+def call_ssh(key_path: str, ssh_args: list[str]) -> int:
     """
     Runs "ssh -i <key_path> <ssh_args>" and returns its exit status; ctrl-c,
     which ends a tunnel, ends ssh and returns 130 instead of a traceback.
@@ -554,7 +555,7 @@ def call_ssh(key_path, ssh_args):
     except KeyboardInterrupt:
         return 130
 
-def instance_ip(instance):
+def instance_ip(instance: dict[str, Any]):
     """
     Returns the external IP of an instance, or None when it has none (a
     stopped or suspended machine has no external IP).
@@ -567,7 +568,7 @@ def instance_ip(instance):
         return None
     return access_configs[0].get("natIP")
 
-def find_by_owner(project_id, compute, owner):
+def find_by_owner(project_id: str, compute: Any, owner: str):
     """
     Returns the instances labelled with the given owner.
     """
@@ -577,7 +578,7 @@ def find_by_owner(project_id, compute, owner):
         if instance.get("labels", {}).get("owner") == owner
     ]
 
-def owner_machine(project_id, compute, owner):
+def owner_machine(project_id: str, compute: Any, owner: str):
     """
     Returns (instance name, current external IP) of the machine belonging to
     an owner.
@@ -617,7 +618,7 @@ def owner_machine(project_id, compute, owner):
         )
     return instance["name"], ip
 
-def strip_separator(extra_args):
+def strip_separator(extra_args: list[str]):
     """
     Drops the leading "--" argparse.REMAINDER keeps when the user separates
     pass-through arguments with it, so it is not forwarded to ssh.
@@ -626,7 +627,7 @@ def strip_separator(extra_args):
         return extra_args[1:]
     return extra_args
 
-def parse_ports(spec):
+def parse_ports(spec: str) -> tuple[int, int]:
     """
     Parses a port specification into a (local_port, remote_port) pair.
 
@@ -647,7 +648,7 @@ def parse_ports(spec):
         ports.append(int(part))
     return (ports[0], ports[-1])
 
-def connect_command(args, project_id, compute):
+def connect_command(args: argparse.Namespace, project_id: str, compute: Any):
     """
     SSH into a student's machine by owner name.
     """
@@ -655,7 +656,7 @@ def connect_command(args, project_id, compute):
     print(f"Connecting to {args.owner} at {ip}...", file=sys.stderr)
     run_ssh(project_id, name, args.key, [f"{args.user}@{ip}", *strip_separator(args.ssh_args)])
 
-def test_port_command(args, project_id, compute):
+def test_port_command(args: argparse.Namespace, project_id: str, compute: Any) -> None:
     """
     Tests whether a port on a student's machine accepts TCP connections,
     looking the machine up by owner name. Exits non-zero when it does not, so
@@ -679,7 +680,7 @@ def test_port_command(args, project_id, compute):
         sys.exit(1)
     print(f"{ip}:{args.port} OPEN")
 
-def tunnel_command(args, project_id, compute):
+def tunnel_command(args: argparse.Namespace, project_id: str, compute: Any):
     """
     Opens an SSH port-forward to a student's machine by owner name.
     """
@@ -692,7 +693,7 @@ def tunnel_command(args, project_id, compute):
     )
     run_ssh(project_id, name, args.key, ["-N", "-L", f"{local_port}:{args.host}:{remote_port}", f"{args.user}@{ip}"])
 
-def add_wait_flag(subparser):
+def add_wait_flag(subparser: ArgumentParser) -> None:
     """
     Adds the mutually-exclusive --wait-all / --wait-each / --no-wait flags
     (default WAIT_ALL) to a subparser, stored in args.wait_mode.
@@ -720,7 +721,7 @@ def command(parser: argparse.ArgumentParser, run: Command) -> None:
     parser.set_defaults(func=run)
 
 
-def main():
+def main() -> None:
     """Main entry point and command-line parser."""
     parser = argparse.ArgumentParser(description="Manage GCP compute instances.")
     subparsers = parser.add_subparsers(dest="command", required=True)

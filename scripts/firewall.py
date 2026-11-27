@@ -7,13 +7,14 @@ This script can be used to create firewall rules to open specific ports or all p
 import argparse
 import sys
 import typing
+from typing import Any
 
 import google.auth
 from googleapiclient import discovery
 from googleapiclient.errors import HttpError
 
 
-def require_default_account(credentials):
+def require_default_account(credentials: Any) -> None:
     """
     Refuses to run unless we are authenticating as the default (personal)
     account rather than a service account.
@@ -37,7 +38,7 @@ def get_compute_client() -> typing.Any:
     credentials, _ = google.auth.default()
     return discovery.build("compute", "v1", credentials=credentials)
 
-def create_firewall_rule(project_id, compute, name, allowed, target_tag):
+def create_firewall_rule(project_id: str | None, compute: Any, name: str, allowed: list[dict[str, list[str] | str] | dict[str, str]] | list[dict[str, list[str] | str]], target_tag: str) -> None:
     """
     Creates a firewall rule in the project.
     """
@@ -57,7 +58,7 @@ def create_firewall_rule(project_id, compute, name, allowed, target_tag):
         else:
             raise
 
-def add_tag_to_all_instances(project_id, compute, tag):
+def add_tag_to_all_instances(project_id: str | None, compute: Any, tag: str) -> None:
     """
     Adds a network tag to all instances in the project.
     """
@@ -79,7 +80,7 @@ def add_tag_to_all_instances(project_id, compute, tag):
             else:
                 print(f"Tag '{tag}' already present on instance {instance_name}. Skipping.")
 
-def main():
+def main() -> None:
     """Main entry point and command-line parser."""
     parser = argparse.ArgumentParser(description="Manage GCP firewall rules.")
     parser.add_argument("--port", type=int, help="A specific TCP port to open.")

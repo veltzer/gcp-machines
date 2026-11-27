@@ -21,12 +21,16 @@ that exist already are left alone.
 
 import argparse
 import sys
+from typing import TYPE_CHECKING, Any
 
 import google.auth
 from google.cloud import datastore
 
+if TYPE_CHECKING:
+    from google.cloud.datastore.client import Client
 
-def require_default_account(credentials):
+
+def require_default_account(credentials: Any) -> None:
     """ refuses to run as a service account; this project is administered as its owner """
     sa_email = getattr(credentials, "service_account_email", None)
     if sa_email is not None:
@@ -41,12 +45,12 @@ def key_name(entity: datastore.Entity) -> str:
     return name
 
 
-def plan(client):
+def plan(client: Client):
     """ (logins, users, legacy keys to delete) to write, or exits listing assignment conflicts """
     legacy = [entity for entity in client.query(kind="user").fetch() if ":" in entity.key.name]
     logins = []
     users: dict[str, datastore.Entity] = {}
-    owners = {}
+    owners: dict[str, dict[str, str]] = {}
     for old in legacy:
         if client.get(client.key("login", old.key.name)) is not None:
             print(f"login {old.key.name} exists already, left alone")
@@ -89,7 +93,7 @@ def plan(client):
     return logins, list(users.values()), [old.key for old in legacy]
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Migrate old per-sign-in accounts to users and their logins.")
     parser.add_argument("--apply", action="store_true", help="Write the change (default: only show it).")
     args = parser.parse_args()

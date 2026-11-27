@@ -10,10 +10,14 @@ connection (see main.api_http), the command line passes none.
 
 import base64
 import re
+from typing import TYPE_CHECKING, Any
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from googleapiclient.errors import HttpError
+
+if TYPE_CHECKING:
+    from collections.abc import Container
 
 # The only zones machines are created in, tried in this order.
 ALLOWED_ZONES = ("us-central1-a", "us-east1-c")
@@ -54,7 +58,7 @@ KEY_SECRET_PREFIX = "machine-key-"
 RESOURCE_NAME = re.compile(r"[a-z]([-a-z0-9]{0,61}[a-z0-9])?")
 
 
-def instance_name(owner, number):
+def instance_name(owner: str, number: int) -> str | None:
     """
     The name of the owner's machine number <number> (1, 2, ...), or None
     when the owner label cannot form a valid instance name. A fixed name per
@@ -66,7 +70,7 @@ def instance_name(owner, number):
     return name if RESOURCE_NAME.fullmatch(name) else None
 
 
-def next_number(owner, names):
+def next_number(owner: str, names: Container[str | None]) -> int:
     """ the lowest machine number of owner that none of names (existing instance names) uses """
     number = 1
     while instance_name(owner, number) in names:
@@ -74,7 +78,7 @@ def next_number(owner, names):
     return number
 
 
-def generate_key_pair(comment):
+def generate_key_pair(comment: str) -> tuple[str, str]:
     """ a new ed25519 ssh key pair: (private key in OpenSSH format, public key line ending in comment) """
     key = Ed25519PrivateKey.generate()
     private = key.private_bytes(
@@ -89,7 +93,7 @@ def generate_key_pair(comment):
     return private, f"{public} {comment}"
 
 
-def store_key(secrets, project_id, name, owner, private_key, http=None):
+def store_key(secrets: Any, project_id: str | None, name: str, owner: str, private_key: str, http: Any = None) -> None:
     """ stores a machine's private key as the newest version of its secret, creating the secret on first use """
     secret_id = KEY_SECRET_PREFIX + name
     parent = f"projects/{project_id}"
@@ -111,14 +115,14 @@ def store_key(secrets, project_id, name, owner, private_key, http=None):
     ).execute(http=http)
 
 
-def read_key(secrets, project_id, name, http=None):
+def read_key(secrets: Any, project_id: str | None, name: str, http: Any = None) -> bytes:
     """ a machine's private key, as bytes, from the newest version of its secret """
     secret = f"projects/{project_id}/secrets/{KEY_SECRET_PREFIX}{name}/versions/latest"
     version = secrets.projects().secrets().versions().access(name=secret).execute(http=http)
     return base64.b64decode(version["payload"]["data"])
 
 
-def delete_key(secrets, project_id, name, http=None):
+def delete_key(secrets: Any, project_id: str | None, name: str, http: Any = None) -> bool:
     """ deletes a machine's key secret; True if there was one """
     try:
         secrets.projects().secrets().delete(
@@ -131,7 +135,7 @@ def delete_key(secrets, project_id, name, http=None):
     return True
 
 
-def instance_body(name, zone, owner, ssh_keys):
+def instance_body(name: str, zone: str, owner: str, ssh_keys: list[str]):
     """ the insert request for a machine; ssh_keys are the public key lines its ubuntu user accepts """
     return {
         "name": name,
@@ -155,12 +159,12 @@ def instance_body(name, zone, owner, ssh_keys):
     }
 
 
-def region_of(zone):
+def region_of(zone: str):
     """ "us-central1-a" -> "us-central1" """
     return zone.rsplit("-", 1)[0]
 
 
-def free_machines(compute, project_id, zone, http=None):
+def free_machines(compute: Any, project_id: str | None, zone: str, http: Any = None) -> int | None:
     """
     How many more machines can run in the zone's region right now, by the
     region's CPU quotas (limit minus current usage), or None when the region
@@ -175,7 +179,7 @@ def free_machines(compute, project_id, zone, http=None):
     return min(free) // MACHINE_VCPUS if free else None
 
 
-def pick_zone(compute, project_id, http=None):
+def pick_zone(compute: Any, project_id: str | None, http: Any = None) -> str | None:
     """ the first allowed zone whose region has room for one more running machine, or None """
     for zone in ALLOWED_ZONES:
         free = free_machines(compute, project_id, zone, http=http)
@@ -184,7 +188,7 @@ def pick_zone(compute, project_id, http=None):
     return None
 
 
-def create(compute, secrets, project_id, owner, number, zone, http=None):
+def create(compute: Any, secrets: Any, project_id: str | None, owner: str, number: int, zone: str, http: Any = None):
     """
     Creates the owner's machine number <number> in zone with a new key pair
     of its own, and returns (instance name, insert operation name). Does

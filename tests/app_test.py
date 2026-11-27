@@ -14,12 +14,21 @@ import sys
 import threading
 import unittest.mock
 import urllib.parse
-from typing import Any, override
+from contextlib import nullcontext
+from typing import TYPE_CHECKING, Any, Self, override
 
 import flask.testing
 import pytest
 from google.cloud import datastore
 from googleapiclient.errors import HttpError
+
+if TYPE_CHECKING:
+    import argparse
+    from types import ModuleType
+    from unittest.mock import Mock
+
+    from google.cloud.datastore.entity import Entity
+    from werkzeug.test import TestResponse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -67,7 +76,7 @@ AGGREGATED_RESPONSE: dict[str, Any] = {
 }
 
 
-def make_fake_compute():
+def make_fake_compute() -> Mock:
     fake = unittest.mock.Mock()
     instances = fake.instances.return_value
     list_request = unittest.mock.Mock()
@@ -80,7 +89,7 @@ def make_fake_compute():
 class FakeKey:
     """A Datastore key: kind plus name."""
 
-    def __init__(self, kind, name):
+    def __init__(self, kind: str, name: str) -> None:
         self.kind = kind
         self.name = name
 
@@ -91,26 +100,26 @@ class FakeDatastore:
     transactions and the student roster query.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.entities = {}
         self.students = []
 
-    def key(self, kind, name):
+    def key(self, kind: str, name: str) -> FakeKey:
         return FakeKey(kind, name)
 
-    def get(self, key):
+    def get(self, key: Any):
         return self.entities.get((key.kind, key.name))
 
-    def delete(self, key):
+    def delete(self, key: Any) -> None:
         self.entities.pop((key.kind, key.name), None)
 
-    def put(self, entity):
+    def put(self, entity: Any) -> None:
         self.entities[(entity.key.kind, entity.key.name)] = entity
 
-    def transaction(self):
+    def transaction(self) -> nullcontext[None]:
         return contextlib.nullcontext()
 
-    def query(self, kind):
+    def query(self, kind: str) -> FakeQuery:
         if kind == "student":
             return FakeQuery(self.students)
         return FakeQuery([e for (k, _name), e in self.entities.items() if k == kind])
@@ -119,16 +128,16 @@ class FakeDatastore:
 class FakeQuery:
     """A Datastore query over a fixed list: fetch, narrowed by equality filters."""
 
-    def __init__(self, entities):
+    def __init__(self, entities: list[Any]) -> None:
         self.entities = entities
 
-    def add_filter(self, **kwargs):  # the real client is called with the keyword filter=
+    def add_filter(self, **kwargs: Any) -> Self:  # the real client is called with the keyword filter=
         flt = kwargs["filter"]
         assert flt.operator == "="
         self.entities = [e for e in self.entities if e.get(flt.property_name) == flt.value]
         return self
 
-    def fetch(self, limit=None):
+    def fetch(self, limit: int | None = None):
         return list(self.entities)[:limit]
 
 
@@ -139,19 +148,19 @@ class FakeMailer:
     forget; or fails, like Identity Platform out of quota.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.sent = []
         self.forgotten = []
         self.fail = False
 
-    def send(self, email, continue_url):
+    def send(self, email: str, continue_url: str) -> None:
         if self.fail:
             # src is importable only after the sys.path line above
             verification_error = importlib.import_module("src.verification").VerificationError
             raise verification_error("Identity Platform: QUOTA_EXCEEDED")
         self.sent.append((email, continue_url))
 
-    def forget(self, email):
+    def forget(self, email: str) -> None:
         self.forgotten.append(email)
 
 
@@ -163,12 +172,12 @@ class BufferedClient(flask.testing.FlaskClient):
     """
 
     @override
-    def open(self, *args, **kwargs):
+    def open(self, *args: argparse.Namespace, **kwargs: Any) -> TestResponse:
         kwargs.setdefault("buffered", True)
         return super().open(*args, **kwargs)
 
 
-def load_app(environ=None):
+def load_app(environ: dict[str, Any] | None = None) -> tuple[ModuleType, Mock]:
     """
     Import a fresh copy of the app with GCP mocked out.
     Returns the module and the fake compute client.
@@ -192,27 +201,27 @@ def load_app(environ=None):
 class FakeStudent(dict[str, Any]):
     """A Datastore student entity: a dict with a key carrying the email."""
 
-    def __init__(self, email, owner):
+    def __init__(self, email: str, owner: str) -> None:
         super().__init__(owner=owner)
         self.key = FakeKey("student", email)
 
 
-def set_mapping(module, mapping):
+def set_mapping(module: ModuleType, mapping: dict[str, str]) -> None:
     """Makes the app's fake Datastore return the given email -> owner roster."""
     module.datastore_client.students = [FakeStudent(email, owner) for email, owner in mapping.items()]
 
 
-def add_user(module, subject, email, owner=None):
+def add_user(module: ModuleType, subject: str, email: str, owner: str | None = None) -> Entity:
     """
     Creates a login in the fake Datastore, joined to the user of its email
     (which holds the assignment), and returns the login.
     """
     login = datastore.Entity(key=FakeKey("login", subject))
-    login.update({"email": email, "name": email.split("@")[0], "picture": "", "user": email})
+    login.update({"email": email, "name": email.split("@", maxsplit=1)[0], "picture": "", "user": email})
     user = module.datastore_client.get(FakeKey("user", email))
     if user is None:
         user = datastore.Entity(key=FakeKey("user", email))
-        user.update({"email": email, "name": email.split("@")[0], "picture": ""})
+        user.update({"email": email, "name": email.split("@", maxsplit=1)[0], "picture": ""})
     if owner is not None:
         user["owner"] = owner
     module.datastore_client.put(user)
@@ -220,7 +229,7 @@ def add_user(module, subject, email, owner=None):
     return login
 
 
-def signed_in_client(module, email="admin@gmail.com", subject=None, owner=None):
+def signed_in_client(module: ModuleType, email: str = "admin@gmail.com", subject: str | None = None, owner: str | None = None):
     """A test client whose session belongs to a (new) account."""
     subject = subject or f"google:{email}"
     add_user(module, subject, email, owner=owner)
@@ -230,9 +239,9 @@ def signed_in_client(module, email="admin@gmail.com", subject=None, owner=None):
     return client
 
 
-def set_instance_status(fake_compute, status, owner=None):
+def set_instance_status(fake_compute: Mock, status: str, owner: str | None = None):
     instances = fake_compute.instances.return_value
-    instance = {"status": status}
+    instance: dict[str, Any] = {"status": status}
     if owner is not None:
         instance["labels"] = {"owner": owner}
     instances.get.return_value.execute.return_value = instance
@@ -242,7 +251,7 @@ def set_instance_status(fake_compute, status, owner=None):
 ADMIN = {"ADMIN_EMAILS": "admin@gmail.com"}
 
 
-def test_root_shows_sign_in_page_when_signed_out():
+def test_root_shows_sign_in_page_when_signed_out() -> None:
     module, _fake_compute = load_app()
     response = module.app.test_client().get("/")
     assert response.status_code == 200
@@ -252,14 +261,14 @@ def test_root_shows_sign_in_page_when_signed_out():
     assert "1.2.3.4" not in body
 
 
-def test_privacy_page_is_public():
+def test_privacy_page_is_public() -> None:
     module, _fake_compute = load_app()
     response = module.app.test_client().get("/privacy")
     assert response.status_code == 200
     assert "<h1>Privacy</h1>" in response.get_data(as_text=True)
 
 
-def test_root_lists_machines_and_survives_missing_fields():
+def test_root_lists_machines_and_survives_missing_fields() -> None:
     module, _fake_compute = load_app(ADMIN)
     client = signed_in_client(module)
     response = client.get("/")
@@ -282,14 +291,14 @@ def test_root_lists_machines_and_survives_missing_fields():
     assert body.count('disabled>Copy IP</button>') == 2
 
 
-def test_actions_reject_get():
+def test_actions_reject_get() -> None:
     module, _fake_compute = load_app(ADMIN)
     client = signed_in_client(module)
     for path in ("/start", "/stop", "/delete", "/create"):
         assert client.get(f"{path}?name=machine-keren&zone=us-central1-a").status_code == 405
 
 
-def test_actions_require_sign_in():
+def test_actions_require_sign_in() -> None:
     module, fake_compute = load_app(ADMIN)
     instances = set_instance_status(fake_compute, "RUNNING", owner="keren")
     client = module.app.test_client()
@@ -300,7 +309,7 @@ def test_actions_require_sign_in():
     instances.insert.assert_not_called()
 
 
-def test_start_resumes_suspended_machine():
+def test_start_resumes_suspended_machine() -> None:
     module, fake_compute = load_app(ADMIN)
     instances = set_instance_status(fake_compute, "SUSPENDED")
     client = signed_in_client(module)
@@ -310,7 +319,7 @@ def test_start_resumes_suspended_machine():
     instances.start.assert_not_called()
 
 
-def test_stop_stops_running_machine():
+def test_stop_stops_running_machine() -> None:
     module, fake_compute = load_app(ADMIN)
     instances = set_instance_status(fake_compute, "RUNNING")
     client = signed_in_client(module)
@@ -320,7 +329,7 @@ def test_stop_stops_running_machine():
     instances.suspend.assert_not_called()
 
 
-def test_start_starts_terminated_machine():
+def test_start_starts_terminated_machine() -> None:
     module, fake_compute = load_app(ADMIN)
     instances = set_instance_status(fake_compute, "TERMINATED")
     client = signed_in_client(module)
@@ -329,7 +338,7 @@ def test_start_starts_terminated_machine():
     instances.start.assert_called_once_with(project="test-project", zone="us-central1-a", instance="machine-keren")
 
 
-def test_actions_refuse_machine_in_transition():
+def test_actions_refuse_machine_in_transition() -> None:
     module, fake_compute = load_app(ADMIN)
     instances = set_instance_status(fake_compute, "STOPPING")
     client = signed_in_client(module)
@@ -341,13 +350,13 @@ def test_actions_refuse_machine_in_transition():
     instances.start.assert_not_called()
 
 
-def test_actions_require_name_and_zone():
+def test_actions_require_name_and_zone() -> None:
     module, _fake_compute = load_app(ADMIN)
     client = signed_in_client(module)
     assert client.post("/stop", data={"name": "machine-keren"}).status_code == 400
 
 
-def test_cards_offer_stop_or_start_and_delete():
+def test_cards_offer_stop_or_start_and_delete() -> None:
     module, _fake_compute = load_app(ADMIN)
     body = signed_in_client(module).get("/").get_data(as_text=True)
     # one running machine (Stop), two not running (Start), every one can be deleted
@@ -357,7 +366,7 @@ def test_cards_offer_stop_or_start_and_delete():
     assert "Suspend" not in body
 
 
-def test_student_sees_only_their_machine():
+def test_student_sees_only_their_machine() -> None:
     module, _fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
     client = signed_in_client(module, "keren@gmail.com")
@@ -368,7 +377,7 @@ def test_student_sees_only_their_machine():
     assert "raz" not in body
 
 
-def test_student_without_machine_sees_none():
+def test_student_without_machine_sees_none() -> None:
     module, _fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
     client = signed_in_client(module, "stranger@gmail.com")
@@ -377,7 +386,7 @@ def test_student_without_machine_sees_none():
     assert "1.2.3.4" not in body
 
 
-def test_an_address_typed_in_reaches_no_machine():
+def test_an_address_typed_in_reaches_no_machine() -> None:
     """Anyone can type a student's address into the form: that must not reach their machine."""
     module, fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
@@ -391,14 +400,14 @@ def test_an_address_typed_in_reaches_no_machine():
     instances.stop.assert_not_called()
 
 
-def test_an_admin_address_typed_in_is_not_admin():
+def test_an_admin_address_typed_in_is_not_admin() -> None:
     module, _fake_compute = load_app(ADMIN)
     client = module.app.test_client()
     request_link(client, "admin@gmail.com")
     assert "All machines" not in client.get("/").get_data(as_text=True)
 
 
-def test_assigned_owner_wins_for_any_account():
+def test_assigned_owner_wins_for_any_account() -> None:
     module, _fake_compute = load_app(ADMIN)
     client = signed_in_client(module, "raz@example.com", subject="email:raz@example.com", owner="raz")
     body = client.get("/").get_data(as_text=True)
@@ -406,7 +415,7 @@ def test_assigned_owner_wins_for_any_account():
     assert "machine-keren" not in body
 
 
-def test_admin_sees_all_machines():
+def test_admin_sees_all_machines() -> None:
     module, _fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
     body = signed_in_client(module).get("/").get_data(as_text=True)
@@ -416,7 +425,7 @@ def test_admin_sees_all_machines():
     assert "admin" in body
 
 
-def test_student_can_toggle_own_machine():
+def test_student_can_toggle_own_machine() -> None:
     module, fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
     instances = set_instance_status(fake_compute, "RUNNING", owner="keren")
@@ -426,7 +435,7 @@ def test_student_can_toggle_own_machine():
     instances.stop.assert_called_once()
 
 
-def test_student_cannot_toggle_others_machine():
+def test_student_cannot_toggle_others_machine() -> None:
     module, fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
     instances = set_instance_status(fake_compute, "RUNNING", owner="raz")
@@ -440,7 +449,7 @@ def test_student_cannot_toggle_others_machine():
     instances.start.assert_not_called()
 
 
-def test_student_cannot_toggle_unowned_machine():
+def test_student_cannot_toggle_unowned_machine() -> None:
     module, fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
     instances = set_instance_status(fake_compute, "SUSPENDED")
@@ -452,7 +461,7 @@ def test_student_cannot_toggle_unowned_machine():
 
 # ─── sign-in ─────────────────────────────────────────────────────────────────
 
-def test_email_sign_up_needs_the_mailed_link():
+def test_email_sign_up_needs_the_mailed_link() -> None:
     """Asking for an address gives no account and no way in: only the link's reader chooses the password."""
     module, _fake_compute = load_app(ADMIN)
     client = module.app.test_client()
@@ -485,7 +494,7 @@ def test_email_sign_up_needs_the_mailed_link():
     assert "Signed in as carol@example.com" in client.get("/").get_data(as_text=True)
 
 
-def test_only_the_hash_of_the_token_is_stored():
+def test_only_the_hash_of_the_token_is_stored() -> None:
     module, _fake_compute = load_app()
     request_link(module.app.test_client(), "carol@example.com")
     token = mailed_token(module, "carol@example.com")
@@ -494,7 +503,7 @@ def test_only_the_hash_of_the_token_is_stored():
     assert token not in pending.values()
 
 
-def test_email_bad_input():
+def test_email_bad_input() -> None:
     module, _fake_compute = load_app()
     client = module.app.test_client()
     bodies: tuple[dict[str, object], ...] = ({"email": "not an email"}, {}, {"email": ["carol@example.com"]})
@@ -518,7 +527,7 @@ def test_email_bad_input():
     assert client.get("/api/config").get_json()["signed_in"] is False
 
 
-def test_a_new_link_voids_the_old_and_waits_a_minute():
+def test_a_new_link_voids_the_old_and_waits_a_minute() -> None:
     module, _fake_compute = load_app()
     client = module.app.test_client()
     request_link(client, "carol@example.com")
@@ -541,7 +550,7 @@ def test_a_new_link_voids_the_old_and_waits_a_minute():
     assert "expired" in response.get_json()["error"]
 
 
-def test_the_answer_is_the_same_whether_or_not_the_address_has_an_account():
+def test_the_answer_is_the_same_whether_or_not_the_address_has_an_account() -> None:
     module, _fake_compute = load_app(ADMIN)
     add_user(module, "email:keren@gmail.com", "keren@gmail.com")
     known = request_link(module.app.test_client(), "keren@gmail.com")
@@ -550,7 +559,7 @@ def test_the_answer_is_the_same_whether_or_not_the_address_has_an_account():
     assert known.get_json()["message"].replace("keren@gmail.com", "X") == unknown.get_json()["message"].replace("nobody@example.com", "X")
 
 
-def test_a_mail_that_cannot_be_sent_is_said_and_leaves_nothing():
+def test_a_mail_that_cannot_be_sent_is_said_and_leaves_nothing() -> None:
     module, _fake_compute = load_app()
     module.app.config["MAILER"].fail = True
     response = request_link(module.app.test_client(), "carol@example.com")
@@ -559,7 +568,7 @@ def test_a_mail_that_cannot_be_sent_is_said_and_leaves_nothing():
     assert ("email_verification", "carol@example.com") not in module.datastore_client.entities
 
 
-def test_password_login_failures_look_the_same():
+def test_password_login_failures_look_the_same() -> None:
     module, _fake_compute = load_app()
     client = module.app.test_client()
     register(module, client, "a@example.com")
@@ -574,7 +583,7 @@ def test_password_login_failures_look_the_same():
     assert sign_in(client, "c@example.com", "wrongwrong").get_json() == no_account.get_json()
 
 
-def test_a_forgotten_password_is_replaced_by_mail():
+def test_a_forgotten_password_is_replaced_by_mail() -> None:
     """Asking for a link for an address with a login answers the same, and the link sets a new password."""
     module, _fake_compute = load_app()
     client = module.app.test_client()
@@ -587,7 +596,7 @@ def test_a_forgotten_password_is_replaced_by_mail():
     assert sign_in(client, password="new password").status_code == 200
 
 
-def test_the_link_page_is_served_and_keeps_its_token_to_itself():
+def test_the_link_page_is_served_and_keeps_its_token_to_itself() -> None:
     module, _fake_compute = load_app()
     response = module.app.test_client().get("/verify?token=abc")
     assert response.status_code == 200
@@ -601,7 +610,7 @@ def test_the_link_page_is_served_and_keeps_its_token_to_itself():
 GOOGLE = {"GOOGLE_CLIENT_ID": "client-id", "GOOGLE_CLIENT_SECRET": "client-secret"}
 
 
-def test_google_sign_in_is_one_redirect_and_checks_the_state():
+def test_google_sign_in_is_one_redirect_and_checks_the_state() -> None:
     module, _fake_compute = load_app({**ADMIN, **GOOGLE})
     client = module.app.test_client()
     response = client.get("/auth/oauth/google")
@@ -618,7 +627,7 @@ def test_google_sign_in_is_one_redirect_and_checks_the_state():
     assert client.get("/auth/oauth/google/callback?state=x&code=c").status_code == 404
 
 
-def test_google_sign_in_creates_an_account():
+def test_google_sign_in_creates_an_account() -> None:
     module, _fake_compute = load_app({**ADMIN, **GOOGLE})
     client = module.app.test_client()
     google_sign_in(module, client, "123", "Admin@gmail.com")
@@ -627,7 +636,7 @@ def test_google_sign_in_creates_an_account():
     assert "badge" in client.get("/").get_data(as_text=True)
 
 
-def test_google_email_google_did_not_verify_is_refused():
+def test_google_email_google_did_not_verify_is_refused() -> None:
     module, _fake_compute = load_app({**ADMIN, **GOOGLE})
     set_mapping(module, {"keren@gmail.com": "keren"})
     client = module.app.test_client()
@@ -639,7 +648,7 @@ def test_google_email_google_did_not_verify_is_refused():
     assert 'id="email-form"' in client.get("/").get_data(as_text=True)
 
 
-def test_sign_in_page_offers_three_icons():
+def test_sign_in_page_offers_three_icons() -> None:
     module, _fake_compute = load_app()
     body = module.app.test_client().get("/").get_data(as_text=True)
     assert 'href="/auth/oauth/google"' in body
@@ -654,12 +663,12 @@ def test_sign_in_page_offers_three_icons():
 GITHUB = {"GITHUB_CLIENT_ID": "gh-id", "GITHUB_CLIENT_SECRET": "gh-secret"}
 
 
-def google_sign_in(_module, client, sub, email, *, verified=True):
+def google_sign_in(_module: ModuleType, client: Any, sub: str, email: str, *, verified: bool = True):
     """Signs the client in with Google as the given identity, through the code flow."""
     client.get("/auth/oauth/google")
     with client.session_transaction() as session:
         state = session["oauth_state"]
-    claims = {"sub": sub, "email": email, "email_verified": verified, "name": email.split("@")[0], "picture": ""}
+    claims = {"sub": sub, "email": email, "email_verified": verified, "name": email.split("@", maxsplit=1)[0], "picture": ""}
     with unittest.mock.patch("src.auth.exchange_code", return_value={"id_token": "signed"}), \
             unittest.mock.patch("src.auth.verify_google_token", return_value=claims) as verify:
         response = client.get(f"/auth/login?state={state}&code=c")
@@ -668,7 +677,7 @@ def google_sign_in(_module, client, sub, email, *, verified=True):
     return response
 
 
-def github_sign_in(client, github_id, email):
+def github_sign_in(client: Any, github_id: int, email: str):
     """Signs the client in with GitHub as the given identity; email "" means no verified primary address."""
     client.get("/auth/oauth/github")
     with client.session_transaction() as session:
@@ -681,7 +690,7 @@ def github_sign_in(client, github_id, email):
     return response
 
 
-def test_google_and_github_with_the_same_email_are_one_user():
+def test_google_and_github_with_the_same_email_are_one_user() -> None:
     module, _fake_compute = load_app({**ADMIN, **GITHUB, **GOOGLE})
     google_sign_in(module, module.app.test_client(), "g1", "Keren@gmail.com")
     github_sign_in(module.app.test_client(), 77, "keren@gmail.com")
@@ -694,7 +703,7 @@ def test_google_and_github_with_the_same_email_are_one_user():
     assert "GitHub, Google" in body
 
 
-def test_an_assignment_holds_for_every_way_the_user_signs_in():
+def test_an_assignment_holds_for_every_way_the_user_signs_in() -> None:
     module, _fake_compute = load_app({**ADMIN, **GITHUB, **GOOGLE})
     google = module.app.test_client()
     google_sign_in(module, google, "g1", "keren@gmail.com")
@@ -708,7 +717,7 @@ def test_an_assignment_holds_for_every_way_the_user_signs_in():
         assert "machine-keren" not in body
 
 
-def test_asking_for_a_link_does_not_touch_the_user_of_the_address():
+def test_asking_for_a_link_does_not_touch_the_user_of_the_address() -> None:
     module, fake_compute = load_app(ADMIN)
     add_user(module, "google:g1", "dana@proton.me", owner="raz")
     squatter = module.app.test_client()
@@ -720,7 +729,7 @@ def test_asking_for_a_link_does_not_touch_the_user_of_the_address():
     instances.start.assert_not_called()
 
 
-def test_a_mailed_address_joins_the_user_of_its_email():
+def test_a_mailed_address_joins_the_user_of_its_email() -> None:
     module, _fake_compute = load_app(ADMIN)
     add_user(module, "google:g1", "dana@proton.me", owner="raz")
     client = module.app.test_client()
@@ -730,7 +739,7 @@ def test_a_mailed_address_joins_the_user_of_its_email():
     assert [name for kind, name in module.datastore_client.entities if kind == "user"] == ["dana@proton.me"]
 
 
-def test_a_login_stays_with_its_user_when_the_provider_email_changes():
+def test_a_login_stays_with_its_user_when_the_provider_email_changes() -> None:
     module, _fake_compute = load_app({**ADMIN, **GITHUB})
     github_sign_in(module.app.test_client(), 77, "keren@gmail.com")
     github_sign_in(module.app.test_client(), 77, "keren@work.example")
@@ -740,7 +749,7 @@ def test_a_login_stays_with_its_user_when_the_provider_email_changes():
     assert ("user", "keren@work.example") not in module.datastore_client.entities
 
 
-def test_github_without_a_verified_email_is_refused():
+def test_github_without_a_verified_email_is_refused() -> None:
     module, _fake_compute = load_app({**ADMIN, **GITHUB})
     set_mapping(module, {"keren@gmail.com": "keren"})
     client = module.app.test_client()
@@ -751,7 +760,7 @@ def test_github_without_a_verified_email_is_refused():
     assert 'id="email-form"' in client.get("/").get_data(as_text=True)
 
 
-def test_account_panel_lists_every_way_the_user_signs_in():
+def test_account_panel_lists_every_way_the_user_signs_in() -> None:
     module, _fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
     add_user(module, "github:77", "keren@gmail.com")
@@ -773,7 +782,7 @@ def test_account_panel_lists_every_way_the_user_signs_in():
     assert "<dd>Student</dd>" in body
 
 
-def test_the_top_bar_shows_the_users_name():
+def test_the_top_bar_shows_the_users_name() -> None:
     module, _fake_compute = load_app({**ADMIN, **GOOGLE})
     client = module.app.test_client()
     google_sign_in(module, client, "g1", "keren@gmail.com")
@@ -783,7 +792,7 @@ def test_the_top_bar_shows_the_users_name():
     assert 'title="Signed in as keren@gmail.com"' in body
 
 
-def test_a_user_without_a_name_is_called_by_their_email():
+def test_a_user_without_a_name_is_called_by_their_email() -> None:
     module, _fake_compute = load_app(ADMIN)
     add_user(module, "github:7", "dana@proton.me")
     module.datastore_client.entities[("user", "dana@proton.me")]["name"] = ""
@@ -791,7 +800,7 @@ def test_a_user_without_a_name_is_called_by_their_email():
     assert '<span class="email">dana</span>' in body
 
 
-def test_a_user_renames_themself_for_every_way_they_sign_in():
+def test_a_user_renames_themself_for_every_way_they_sign_in() -> None:
     module, _fake_compute = load_app(ADMIN)
     add_user(module, "github:7", "keren@gmail.com")
     client = signed_in_client(module, "keren@gmail.com")
@@ -806,7 +815,7 @@ def test_a_user_renames_themself_for_every_way_they_sign_in():
     assert '<span class="student-name">Keren Cohen</span>' in signed_in_client(module).get("/").get_data(as_text=True)
 
 
-def test_a_name_must_be_sensible():
+def test_a_name_must_be_sensible() -> None:
     module, _fake_compute = load_app(ADMIN)
     client = signed_in_client(module, "keren@gmail.com")
     before = module.datastore_client.entities[("user", "keren@gmail.com")]["name"]
@@ -819,7 +828,7 @@ def test_a_name_must_be_sensible():
     assert f'maxlength="{module.users.NAME_MAX_LENGTH}"' in client.get("/").get_data(as_text=True)
 
 
-def test_a_login_without_a_user_is_nobody():
+def test_a_login_without_a_user_is_nobody() -> None:
     """An unproven login (the old kind) signs in to nothing, whatever its session says."""
     module, _fake_compute = load_app(ADMIN)
     login = datastore.Entity(key=FakeKey("login", "email:dana@proton.me"))
@@ -831,7 +840,7 @@ def test_a_login_without_a_user_is_nobody():
     assert 'id="email-form"' in client.get("/").get_data(as_text=True)
 
 
-def test_dev_login_only_when_enabled_and_never_on_cloud_run():
+def test_dev_login_only_when_enabled_and_never_on_cloud_run() -> None:
     module, _fake_compute = load_app()
     assert module.app.test_client().post("/auth/dev-login", data={"email": "a@b.c"}).status_code == 404
     module, _fake_compute = load_app({"MACHINES_DEV_LOGIN": "1", "K_SERVICE": "machines"})
@@ -842,7 +851,7 @@ def test_dev_login_only_when_enabled_and_never_on_cloud_run():
     assert "Signed in as a@b.c" in client.get("/").get_data(as_text=True)
 
 
-def test_github_hidden_until_configured():
+def test_github_hidden_until_configured() -> None:
     module, _fake_compute = load_app()
     assert module.app.test_client().get("/api/config").get_json()["providers"] == {"google": False, "github": False}
     assert module.app.test_client().get("/auth/oauth/github").status_code == 404
@@ -852,12 +861,12 @@ def test_github_hidden_until_configured():
     assert response.headers["Location"].startswith("https://github.com/login/oauth/authorize?")
 
 
-def test_secret_key_required_on_cloud_run():
+def test_secret_key_required_on_cloud_run() -> None:
     with pytest.raises(RuntimeError):
         load_app({"K_SERVICE": "machines", "SECRET_KEY": ""})
 
 
-def test_run_app_hostnames_redirect_to_the_custom_domain():
+def test_run_app_hostnames_redirect_to_the_custom_domain() -> None:
     module, _fake_compute = load_app({"CANONICAL_HOST": "machines.veltzer.org"})
     client = module.app.test_client()
     response = client.get("/some/path?x=1", base_url="https://machines-123.us-central1.run.app")
@@ -869,7 +878,7 @@ def test_run_app_hostnames_redirect_to_the_custom_domain():
 
 # ─── assignments ─────────────────────────────────────────────────────────────
 
-def test_admin_sees_who_has_which_machine():
+def test_admin_sees_who_has_which_machine() -> None:
     module, _fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren", "raz@gmail.com": "raz"})
     add_user(module, "google:keren", "keren@gmail.com")
@@ -886,7 +895,7 @@ def test_admin_sees_who_has_which_machine():
     assert "Password" in body
 
 
-def test_student_does_not_see_other_students():
+def test_student_does_not_see_other_students() -> None:
     module, _fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren", "raz@gmail.com": "raz"})
     add_user(module, "google:raz", "raz@gmail.com")
@@ -897,7 +906,7 @@ def test_student_does_not_see_other_students():
     assert "machine-raz" not in body
 
 
-def test_admin_assigns_a_machine_to_a_user():
+def test_admin_assigns_a_machine_to_a_user() -> None:
     module, fake_compute = load_app(ADMIN)
     add_user(module, "email:dana@example.com", "dana@example.com")
     admin = signed_in_client(module)
@@ -920,7 +929,7 @@ def test_admin_assigns_a_machine_to_a_user():
     assert "machine-raz" not in dana.get("/").get_data(as_text=True)
 
 
-def test_assignment_wins_over_the_roster():
+def test_assignment_wins_over_the_roster() -> None:
     module, _fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
     client = signed_in_client(module, "keren@gmail.com", owner="raz")
@@ -929,7 +938,7 @@ def test_assignment_wins_over_the_roster():
     assert "machine-keren" not in body
 
 
-def test_only_admins_assign():
+def test_only_admins_assign() -> None:
     module, _fake_compute = load_app(ADMIN)
     student = signed_in_client(module, "keren@gmail.com")
     response = student.post("/admin/assign", data={"email": "keren@gmail.com", "owner": "raz"})
@@ -940,7 +949,7 @@ def test_only_admins_assign():
     assert "owner" not in module.datastore_client.entities[("user", "keren@gmail.com")]
 
 
-def test_assign_refuses_unknown_machines_and_users():
+def test_assign_refuses_unknown_machines_and_users() -> None:
     module, _fake_compute = load_app(ADMIN)
     add_user(module, "email:dana@example.com", "dana@example.com")
     admin = signed_in_client(module)
@@ -952,7 +961,7 @@ def test_assign_refuses_unknown_machines_and_users():
 
 # ─── machine keys ────────────────────────────────────────────────────────────
 
-def set_key(fake_compute, private_key):
+def set_key(fake_compute: Mock, private_key: str):
     """Makes the fake Secret Manager hold a machine key; returns the access mock."""
     access = fake_compute.projects.return_value.secrets.return_value.versions.return_value.access
     access.return_value.execute.return_value = {
@@ -961,7 +970,7 @@ def set_key(fake_compute, private_key):
     return access
 
 
-def test_student_downloads_own_machine_key():
+def test_student_downloads_own_machine_key() -> None:
     module, fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
     set_instance_status(fake_compute, "TERMINATED", owner="keren")
@@ -975,7 +984,7 @@ def test_student_downloads_own_machine_key():
     access.assert_called_with(name="projects/test-project/secrets/machine-key-machine-keren/versions/latest")
 
 
-def test_student_cannot_download_others_key():
+def test_student_cannot_download_others_key() -> None:
     module, fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
     set_instance_status(fake_compute, "RUNNING", owner="raz")
@@ -986,7 +995,7 @@ def test_student_cannot_download_others_key():
     access.assert_not_called()
 
 
-def test_key_download_requires_sign_in_and_sane_names():
+def test_key_download_requires_sign_in_and_sane_names() -> None:
     module, fake_compute = load_app(ADMIN)
     set_instance_status(fake_compute, "RUNNING", owner="keren")
     access = set_key(fake_compute, "secret")
@@ -999,7 +1008,7 @@ def test_key_download_requires_sign_in_and_sane_names():
     assert admin.get("/key?name=machine-keren&zone=us-central1-a").status_code == 200
 
 
-def test_machine_without_key_says_so():
+def test_machine_without_key_says_so() -> None:
     module, fake_compute = load_app(ADMIN)
     set_instance_status(fake_compute, "RUNNING", owner="keren")
     access = fake_compute.projects.return_value.secrets.return_value.versions.return_value.access
@@ -1009,7 +1018,7 @@ def test_machine_without_key_says_so():
     assert "no downloadable key" in response.get_data(as_text=True)
 
 
-def test_cards_offer_key_and_ssh_command():
+def test_cards_offer_key_and_ssh_command() -> None:
     module, _fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
     body = signed_in_client(module, "keren@gmail.com").get("/").get_data(as_text=True)
@@ -1019,7 +1028,7 @@ def test_cards_offer_key_and_ssh_command():
 
 # ─── creating and deleting machines ──────────────────────────────────────────
 
-def set_quota(fake_compute, free_cpus):
+def set_quota(fake_compute: Mock, free_cpus: int) -> None:
     """Makes every region report free_cpus CPUs of quota left."""
     fake_compute.regions.return_value.get.return_value.execute.return_value = {
         "quotas": [
@@ -1030,11 +1039,11 @@ def set_quota(fake_compute, free_cpus):
     }
 
 
-def secrets_of(fake_compute):
+def secrets_of(fake_compute: Mock):
     return fake_compute.projects.return_value.secrets.return_value
 
 
-def test_student_without_a_machine_is_offered_one():
+def test_student_without_a_machine_is_offered_one() -> None:
     module, _fake_compute = load_app(ADMIN)
     set_mapping(module, {"dana@gmail.com": "dana"})
     body = signed_in_client(module, "dana@gmail.com").get("/").get_data(as_text=True)
@@ -1042,7 +1051,7 @@ def test_student_without_a_machine_is_offered_one():
     assert "No machine is assigned to you" not in body
 
 
-def test_admin_sees_how_many_machines_are_up():
+def test_admin_sees_how_many_machines_are_up() -> None:
     module, _fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren", "raz@gmail.com": "raz", "dana@gmail.com": "dana"})
     body = signed_in_client(module).get("/").get_data(as_text=True)
@@ -1052,7 +1061,7 @@ def test_admin_sees_how_many_machines_are_up():
     assert "<strong>2</strong> of 3 roster students have one" in body
 
 
-def test_admin_without_machines_is_not_told_to_contact_the_instructor():
+def test_admin_without_machines_is_not_told_to_contact_the_instructor() -> None:
     module, fake_compute = load_app(ADMIN)
     fake_compute.instances.return_value.aggregatedList.return_value.execute.return_value = NO_MACHINES
     body = signed_in_client(module).get("/").get_data(as_text=True)
@@ -1061,14 +1070,14 @@ def test_admin_without_machines_is_not_told_to_contact_the_instructor():
     assert "<strong>0</strong> up" in body
 
 
-def test_student_with_a_machine_or_without_assignment_is_not_offered_one():
+def test_student_with_a_machine_or_without_assignment_is_not_offered_one() -> None:
     module, _fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
     assert 'action="/create"' not in signed_in_client(module, "keren@gmail.com").get("/").get_data(as_text=True)
     assert 'action="/create"' not in signed_in_client(module, "nobody@gmail.com").get("/").get_data(as_text=True)
 
 
-def test_student_creates_their_machine_with_its_own_key():
+def test_student_creates_their_machine_with_its_own_key() -> None:
     module, fake_compute = load_app(ADMIN)
     set_mapping(module, {"dana@gmail.com": "dana"})
     set_quota(fake_compute, free_cpus=8)
@@ -1090,7 +1099,7 @@ def test_student_creates_their_machine_with_its_own_key():
     assert base64.b64decode(stored).startswith(b"-----BEGIN OPENSSH PRIVATE KEY-----")
 
 
-def test_create_goes_to_the_next_zone_when_the_first_is_full():
+def test_create_goes_to_the_next_zone_when_the_first_is_full() -> None:
     module, fake_compute = load_app(ADMIN)
     set_mapping(module, {"dana@gmail.com": "dana"})
     full = {"quotas": [{"metric": "CPUS", "limit": 8.0, "usage": 8.0}]}
@@ -1102,7 +1111,7 @@ def test_create_goes_to_the_next_zone_when_the_first_is_full():
     assert instances.insert.call_args.kwargs["zone"] == "us-east1-c"
 
 
-def test_create_says_so_when_there_is_no_room():
+def test_create_says_so_when_there_is_no_room() -> None:
     module, fake_compute = load_app(ADMIN)
     set_mapping(module, {"dana@gmail.com": "dana"})
     set_quota(fake_compute, free_cpus=1)
@@ -1111,7 +1120,7 @@ def test_create_says_so_when_there_is_no_room():
     fake_compute.instances.return_value.insert.assert_not_called()
 
 
-def test_one_machine_per_student_by_default():
+def test_one_machine_per_student_by_default() -> None:
     module, fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
     set_quota(fake_compute, free_cpus=8)
@@ -1120,7 +1129,7 @@ def test_one_machine_per_student_by_default():
     fake_compute.instances.return_value.insert.assert_not_called()
 
 
-def test_a_student_with_a_higher_limit_creates_another_machine():
+def test_a_student_with_a_higher_limit_creates_another_machine() -> None:
     module, fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
     set_quota(fake_compute, free_cpus=8)
@@ -1139,14 +1148,14 @@ def test_a_student_with_a_higher_limit_creates_another_machine():
     assert instances.insert.call_args.kwargs["body"]["labels"] == {"owner": "keren"}
 
 
-def test_machine_numbers_fill_the_lowest_gap():
+def test_machine_numbers_fill_the_lowest_gap() -> None:
     module, _fake_compute = load_app()
     names = {"machine-keren-1", "machine-keren-3", "machine-raz-2"}
     assert module.provision.next_number("keren", names) == 2
     assert module.provision.next_number("raz", names) == 1
 
 
-def test_a_student_at_the_limit_is_not_offered_another():
+def test_a_student_at_the_limit_is_not_offered_another() -> None:
     module, fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
     add_user(module, "google:keren@gmail.com", "keren@gmail.com")
@@ -1158,7 +1167,7 @@ def test_a_student_at_the_limit_is_not_offered_another():
     fake_compute.instances.return_value.insert.assert_not_called()
 
 
-def test_admin_sets_and_clears_the_machine_limit():
+def test_admin_sets_and_clears_the_machine_limit() -> None:
     module, _fake_compute = load_app(ADMIN)
     add_user(module, "google:keren", "keren@gmail.com")
     admin = signed_in_client(module)
@@ -1174,7 +1183,7 @@ def test_admin_sets_and_clears_the_machine_limit():
         assert response.status_code == 400
 
 
-def test_admin_may_assign_a_roster_owner_that_has_no_machine_yet():
+def test_admin_may_assign_a_roster_owner_that_has_no_machine_yet() -> None:
     module, _fake_compute = load_app(ADMIN)
     set_mapping(module, {"dana@gmail.com": "dana"})
     add_user(module, "google:keren", "keren@gmail.com")
@@ -1183,7 +1192,7 @@ def test_admin_may_assign_a_roster_owner_that_has_no_machine_yet():
     assert module.datastore_client.entities[("user", "keren@gmail.com")]["owner"] == "dana"
 
 
-def test_a_racing_second_create_does_not_replace_the_key():
+def test_a_racing_second_create_does_not_replace_the_key() -> None:
     module, fake_compute = load_app(ADMIN)
     set_mapping(module, {"dana@gmail.com": "dana"})
     set_quota(fake_compute, free_cpus=8)
@@ -1194,7 +1203,7 @@ def test_a_racing_second_create_does_not_replace_the_key():
     secrets_of(fake_compute).addVersion.assert_not_called()
 
 
-def test_a_machine_whose_key_cannot_be_stored_is_removed():
+def test_a_machine_whose_key_cannot_be_stored_is_removed() -> None:
     module, fake_compute = load_app(ADMIN)
     set_mapping(module, {"dana@gmail.com": "dana"})
     set_quota(fake_compute, free_cpus=8)
@@ -1207,14 +1216,14 @@ def test_a_machine_whose_key_cannot_be_stored_is_removed():
     instances.delete.assert_called_once_with(project="test-project", zone="us-central1-a", instance="machine-dana-1")
 
 
-def test_unassigned_account_cannot_create():
+def test_unassigned_account_cannot_create() -> None:
     module, fake_compute = load_app(ADMIN)
     response = signed_in_client(module, "nobody@gmail.com").post("/create")
     assert response.status_code == 403
     fake_compute.instances.return_value.insert.assert_not_called()
 
 
-def test_student_deletes_their_machine_and_its_key():
+def test_student_deletes_their_machine_and_its_key() -> None:
     module, fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
     instances = set_instance_status(fake_compute, "RUNNING", owner="keren")
@@ -1226,7 +1235,7 @@ def test_student_deletes_their_machine_and_its_key():
         name="projects/test-project/secrets/machine-key-machine-keren")
 
 
-def test_delete_asks_first():
+def test_delete_asks_first() -> None:
     module, _fake_compute = load_app(ADMIN)
     set_mapping(module, {"keren@gmail.com": "keren"})
     body = signed_in_client(module, "keren@gmail.com").get("/").get_data(as_text=True)
@@ -1234,7 +1243,7 @@ def test_delete_asks_first():
     assert 'id="delete-dialog"' in body
 
 
-def test_owner_labels_become_valid_machine_names():
+def test_owner_labels_become_valid_machine_names() -> None:
     module, _fake_compute = load_app()
     assert module.provision.instance_name("dana_k", 2) == "machine-dana-k-2"
     assert module.provision.instance_name("x" * 60, 1) is None
@@ -1242,19 +1251,19 @@ def test_owner_labels_become_valid_machine_names():
 
 # ─── email sign-in helpers ───────────────────────────────────────────────────
 
-def request_link(client, email="dana@proton.me"):
+def request_link(client: Any, email: str = "dana@proton.me"):
     """ asks for a link by mail, giving the address only """
     return client.post("/auth/email/register", json={"email": email})
 
 
-def mailed_token(module, email):
+def mailed_token(module: ModuleType, email: str):
     """ the token of the last link mailed to email """
     link = [link for to, link in module.app.config["MAILER"].sent if to == email][-1]
     assert link.startswith("http://localhost/verify?token=")
     return link.split("token=")[1]
 
 
-def register(module, client, email="dana@proton.me", password="longenough"):
+def register(module: ModuleType, client: Any, email: str = "dana@proton.me", password: str = "longenough"):
     """ asks for a link, follows it, chooses the password: signed in """
     request_link(client, email)
     token = mailed_token(module, email.strip().lower())
@@ -1263,11 +1272,11 @@ def register(module, client, email="dana@proton.me", password="longenough"):
     return response
 
 
-def sign_in(client, email="dana@proton.me", password="longenough"):
+def sign_in(client: Any, email: str = "dana@proton.me", password: str = "longenough"):
     return client.post("/auth/email/login", json={"email": email, "password": password})
 
 
-def test_version_reports_deploy_stamp_and_revision():
+def test_version_reports_deploy_stamp_and_revision() -> None:
     module, _fake_compute = load_app()
     module.app.config["BUILD_INFO"] = {"deploy_date": "2026-11-14T21:00:00Z", "git_describe": "dd8e1e0"}
     with unittest.mock.patch.dict(os.environ, {"K_REVISION": "machines-00011-abc"}):
@@ -1280,7 +1289,7 @@ def test_version_reports_deploy_stamp_and_revision():
     }
 
 
-def test_both_pages_carry_the_build_footer():
+def test_both_pages_carry_the_build_footer() -> None:
     module, _fake_compute = load_app(ADMIN)
     signed_out = module.app.test_client().get("/").get_data(as_text=True)
     signed_in = signed_in_client(module).get("/").get_data(as_text=True)
@@ -1293,7 +1302,7 @@ def test_both_pages_carry_the_build_footer():
     ("github:5678", "github", "GitHub"),
     ("email:keren@gmail.com", "email", "email and password"),
 ])
-def test_top_bar_shows_how_the_user_signed_in(subject, icon, name):
+def test_top_bar_shows_how_the_user_signed_in(subject: str, icon: str, name: str) -> None:
     module, _fake_compute = load_app(ADMIN)
     client = signed_in_client(module, email="keren@gmail.com", subject=subject)
     body = client.get("/").get_data(as_text=True)
@@ -1304,7 +1313,7 @@ def test_top_bar_shows_how_the_user_signed_in(subject, icon, name):
 
 # ─── thread safety and response headers ─────────────────────────────────────
 
-def test_each_thread_gets_its_own_api_connection():
+def test_each_thread_gets_its_own_api_connection() -> None:
     module, fake_compute = load_app()
     seen = []
     thread = threading.Thread(target=lambda: seen.append(module.api_http()))
@@ -1317,7 +1326,7 @@ def test_each_thread_gets_its_own_api_connection():
     assert call.kwargs["http"] is module.api_http()
 
 
-def test_pages_cannot_be_framed():
+def test_pages_cannot_be_framed() -> None:
     module, _fake_compute = load_app(ADMIN)
     for response in (module.app.test_client().get("/"), signed_in_client(module).get("/")):
         csp = response.headers["Content-Security-Policy"]
@@ -1332,14 +1341,14 @@ def test_pages_cannot_be_framed():
     assert "Content-Security-Policy" not in module.app.test_client().get("/static/scene.svg").headers
 
 
-def test_hsts_on_cloud_run():
+def test_hsts_on_cloud_run() -> None:
     module, _fake_compute = load_app()
     with unittest.mock.patch.dict(os.environ, {"K_SERVICE": "machines"}):
         response = module.app.test_client().get("/app/health")
     assert response.headers["Strict-Transport-Security"].startswith("max-age=")
 
 
-def test_the_settings_button_opens_a_dialog_to_set_the_name():
+def test_the_settings_button_opens_a_dialog_to_set_the_name() -> None:
     module, _fake_compute = load_app(ADMIN)
     add_user(module, "github:7", "keren@gmail.com")
     module.datastore_client.entities[("user", "keren@gmail.com")]["name"] = "Keren"
@@ -1353,7 +1362,7 @@ def test_the_settings_button_opens_a_dialog_to_set_the_name():
     assert body.count('action="/account/name"') == 1
 
 
-def test_the_top_bar_shows_the_providers_photo():
+def test_the_top_bar_shows_the_providers_photo() -> None:
     module, _fake_compute = load_app(ADMIN)
     client = signed_in_client(module, "keren@gmail.com", subject="github:7")
     photo = "https://avatars.githubusercontent.com/u/7?v=4"
@@ -1368,7 +1377,7 @@ def test_the_top_bar_shows_the_providers_photo():
     assert client.get("/account/picture").status_code == 302
 
 
-def test_no_photo_no_image():
+def test_no_photo_no_image() -> None:
     module, _fake_compute = load_app(ADMIN)
     client = signed_in_client(module, "keren@gmail.com", subject="email:keren@gmail.com")
     assert 'class="avatar"' not in client.get("/").get_data(as_text=True)

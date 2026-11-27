@@ -26,9 +26,13 @@ done is not found again.
 
 import argparse
 import sys
+from typing import TYPE_CHECKING, Any
 
 import google.auth
 from google.cloud import datastore
+
+if TYPE_CHECKING:
+    from google.cloud.datastore.entity import Entity
 
 # what the old verification kept on a login and the app no longer reads
 REMOVED_FIELDS = ("account_id", "verification_sent", "verification_token", "verified")
@@ -37,14 +41,14 @@ REMOVED_FIELDS = ("account_id", "verification_sent", "verification_token", "veri
 ASSIGNED_FIELDS = ("owner", "machine_limit")
 
 
-def require_default_account(credentials):
+def require_default_account(credentials: Any) -> None:
     """ refuses to run as a service account; this project is administered as its owner """
     sa_email = getattr(credentials, "service_account_email", None)
     if sa_email is not None:
         sys.exit(f"Refusing to run as service account '{sa_email}'. Set gcp_identity=default in .gcp.conf.")
 
 
-def unproven(login):
+def unproven(login: Any):
     """
     Whether a login's email was never proven: it has no user, or it is an
     email login marked unverified. A login that lost its verified field
@@ -63,7 +67,7 @@ def key_name(entity: datastore.Entity) -> str:
     return name
 
 
-def plan(logins):
+def plan(logins: list[Any]) -> tuple[list[Entity], list[Entity], list[Entity]]:
     """ (logins to delete, logins to strip, unproven logins that carry an assignment) """
     delete: list[datastore.Entity] = []
     strip: list[datastore.Entity] = []
@@ -79,7 +83,7 @@ def plan(logins):
     return delete, strip, assigned
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Remove unproven logins and the fields of the old email verification.")
     parser.add_argument("--apply", action="store_true", help="Write the change (default: only show it).")
     args = parser.parse_args()

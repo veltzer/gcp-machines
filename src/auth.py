@@ -43,17 +43,27 @@ import logging
 import os
 import secrets
 import urllib.parse
+from typing import TYPE_CHECKING, Any
 
 import flask
 import requests
 import werkzeug
 import werkzeug.exceptions
+from flask.wrappers import Response
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from src import users
 from src.verification import VerificationError
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from werkzeug.exceptions import HTTPException
+    from werkzeug.wrappers.response import Response
+
+    from src.users import Account
 
 bp = flask.Blueprint("auth", __name__, url_prefix="/auth")
 
@@ -68,7 +78,7 @@ UNVERIFIED = "{provider} did not confirm an email address for you: verify one wi
 logger = logging.getLogger(__name__)
 
 
-def _external_url(endpoint, **values):
+def _external_url(endpoint: str, **values: Any) -> str:
     # Cloud Run terminates TLS in front of the app, so build the https URL by hand there.
     scheme = "https" if flask.current_app.config["ON_CLOUD_RUN"] else None
     return flask.url_for(endpoint, _external=True, _scheme=scheme, **values)
@@ -78,7 +88,7 @@ def datastore_client():
     return flask.current_app.config["DATASTORE"]
 
 
-def configure(app):
+def configure(app: flask.Flask) -> None:
     """
     Read the sign-in settings from the environment, once, into the app config:
 
@@ -113,16 +123,16 @@ def current_user():
     return flask.g.user
 
 
-def start_session(account):
+def start_session(account: Account) -> None:
     flask.session.clear()
     flask.session["subject"] = account.subject
     flask.g.user = account
 
 
-def login_required(view):
+def login_required(view: Callable[..., Any]):
     """ send anyone who is not signed in to the sign-in page """
     @functools.wraps(view)
-    def wrapped(*args, **kwargs):
+    def wrapped(*args: Any, **kwargs: Any):
         if current_user() is None:
             return flask.redirect(flask.url_for("root"))
         return view(*args, **kwargs)
@@ -130,7 +140,7 @@ def login_required(view):
 
 
 @bp.errorhandler(werkzeug.exceptions.HTTPException)
-def handle_http_error(error):
+def handle_http_error(error: HTTPException):
     """ The email form talks JSON (fetch from app.js); the other routes are browser navigations. """
     if flask.request.path.startswith("/auth/email/"):
         return flask.jsonify({"error": error.description}), error.code or 500
@@ -139,7 +149,7 @@ def handle_http_error(error):
 
 # ─── google ──────────────────────────────────────────────────────────────────
 
-def verify_google_token(token):
+def verify_google_token(token: str):
     """ the verified claims of a Google ID token, raising ValueError otherwise """
     audience = OAUTH_PROVIDERS["google"].client_id
     if not audience:
@@ -148,7 +158,7 @@ def verify_google_token(token):
 
 
 @bp.route("/login", methods=["GET"])
-def google_callback():
+def google_callback() -> Response:
     """ where Google returns: the redirect URI registered with the OAuth client """
     return finish_oauth(_provider("google"))
 
@@ -162,7 +172,7 @@ def _body():
     return body
 
 
-def _email(body):
+def _email(body: dict[str, Any]) -> str:
     """ the address in the body, validated for shape only """
     email = body.get("email")
     if not isinstance(email, str):
@@ -173,11 +183,11 @@ def _email(body):
     return email
 
 
-def _token_hash(token):
+def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def _pending(token):
+def _pending(token: object):
     """ the verification a link's token belongs to, while the link still works; else 400 """
     if not isinstance(token, str) or not token:
         flask.abort(400, "this link is not complete: open the one in the mail")
@@ -188,7 +198,7 @@ def _pending(token):
 
 
 @bp.route("/email/register", methods=["POST"])
-def email_register():
+def email_register() -> Response:
     """
     Mail the address a link to choose a password with. The answer is the
     same whether or not the address has an account, so the form does not
@@ -212,13 +222,13 @@ def email_register():
 
 
 @bp.route("/email/verify", methods=["POST"])
-def email_verify():
+def email_verify() -> Response:
     """ which address a link is for, so its page can say so before asking for the password """
     return flask.jsonify({"email": _pending(_body().get("token")).key.name})
 
 
 @bp.route("/email/password", methods=["POST"])
-def email_password():
+def email_password() -> Response:
     """
     The link's reader chooses the password: the address is proven, so this
     makes (or gives a new password to) its email login, which joins the
@@ -246,7 +256,7 @@ def email_password():
 
 
 @bp.route("/email/login", methods=["POST"])
-def email_login():
+def email_login() -> Response:
     body = _body()
     email = _email(body)
     password = body.get("password")
@@ -284,7 +294,7 @@ class OAuthProvider:
         return flask.current_app.config[f"{self.key.upper()}_CLIENT_SECRET"]
 
     @property
-    def configured(self):
+    def configured(self) -> bool:
         return bool(self.client_id and self.client_secret)
 
 
@@ -313,20 +323,20 @@ class OAuthError(Exception):
     pass
 
 
-def _provider(key):
+def _provider(key: str) -> OAuthProvider:
     provider = OAUTH_PROVIDERS.get(key)
     if provider is None or not provider.configured:
         flask.abort(404)
     return provider
 
 
-def _callback_url(provider):
+def _callback_url(provider: OAuthProvider) -> str:
     if provider.callback == "auth.oauth_callback":
         return _external_url(provider.callback, provider=provider.key)
     return _external_url(provider.callback)
 
 
-def exchange_code(provider, code, redirect_uri):
+def exchange_code(provider: OAuthProvider, code: str, redirect_uri: str):
     """ trade the authorization code for the provider's token response (a dict) """
     response = requests.post(
         provider.token_url,
@@ -346,7 +356,7 @@ def exchange_code(provider, code, redirect_uri):
     return tokens
 
 
-def fetch_identity(provider, tokens):
+def fetch_identity(provider: OAuthProvider, tokens: dict[str, Any]):
     """ who the tokens belong to: (subject, email, name, picture, email verified) """
     if provider.key == "google":
         claims = verify_google_token(tokens.get("id_token") or "")
@@ -381,7 +391,7 @@ def fetch_identity(provider, tokens):
 
 
 @bp.route("/oauth/<provider>", methods=["GET"])
-def oauth_start(provider):
+def oauth_start(provider: str) -> Response:
     oauth = _provider(provider)
     state = secrets.token_urlsafe(32)
     flask.session["oauth_state"] = state
@@ -398,19 +408,19 @@ def oauth_start(provider):
     return flask.redirect(f"{oauth.authorize_url}?{urllib.parse.urlencode(params)}")
 
 
-def _back_with_error(message):
+def _back_with_error(message: str) -> Response:
     return flask.redirect(flask.url_for("root", error=message))
 
 
 @bp.route("/oauth/<provider>/callback", methods=["GET"])
-def oauth_callback(provider):
+def oauth_callback(provider: str) -> Response:
     oauth = _provider(provider)
     if oauth.callback != "auth.oauth_callback":
         flask.abort(404)
     return finish_oauth(oauth)
 
 
-def finish_oauth(oauth):
+def finish_oauth(oauth: OAuthProvider) -> Response:
     """ the provider sent the browser back: check the state, learn who it is, sign them in """
     expected = flask.session.pop("oauth_state", "")
     given = flask.request.args.get("state", "")
@@ -436,7 +446,7 @@ def finish_oauth(oauth):
 # ─── development ─────────────────────────────────────────────────────────────
 
 @bp.route("/dev-login", methods=["POST"])
-def dev_login():
+def dev_login() -> Response:
     if not dev_login_enabled():
         flask.abort(404)
     email = flask.request.form.get("email", "").strip().lower()
@@ -449,6 +459,6 @@ def dev_login():
 
 
 @bp.route("/logout", methods=["POST"])
-def logout():
+def logout() -> Response:
     flask.session.clear()
     return flask.redirect(flask.url_for("root"))
