@@ -14,6 +14,7 @@ import time
 import typing
 import urllib.parse
 import warnings
+from typing import Any
 
 import flask
 import google.auth
@@ -347,7 +348,7 @@ def api_config():
 def get_machines():
     """ list all instances in all zones """
     request = compute.instances().aggregatedList(project=project_id)
-    all_instances = []
+    all_instances: list[dict[str, Any]] = []
     while request is not None:
         response = request.execute(http=api_http())
         for instances_data in response["items"].values():

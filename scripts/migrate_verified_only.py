@@ -55,9 +55,19 @@ def unproven(login):
     return login.key.name.startswith("email:") and "verified" in login and not login["verified"]
 
 
+def key_name(entity: datastore.Entity) -> str:
+    """ The key name of a stored entity: one read from the datastore always has a key. """
+    if entity.key is None:
+        raise ValueError("an entity without a key")
+    name: str = entity.key.name
+    return name
+
+
 def plan(logins):
     """ (logins to delete, logins to strip, unproven logins that carry an assignment) """
-    delete, strip, assigned = [], [], []
+    delete: list[datastore.Entity] = []
+    strip: list[datastore.Entity] = []
+    assigned: list[datastore.Entity] = []
     for login in logins:
         if not unproven(login):
             if any(field in login for field in REMOVED_FIELDS):
@@ -79,13 +89,13 @@ def main():
     delete, strip, assigned = plan(list(client.query(kind="login").fetch()))
     for login in delete:
         reason = "no user" if not login.get("user") else "email not verified"
-        print(f"delete login {login.key.name} ({reason})")
+        print(f"delete login {key_name(login)} ({reason})")
     for login in strip:
         removed = ", ".join(field for field in REMOVED_FIELDS if field in login)
-        print(f"strip login {login.key.name}: {removed}")
+        print(f"strip login {key_name(login)}: {removed}")
     for login in assigned:
         given = ", ".join(f"{field} {login[field]}" for field in ASSIGNED_FIELDS if login.get(field) is not None)
-        print(f"KEEP login {login.key.name}: unproven, but assigned {given}")
+        print(f"KEEP login {key_name(login)}: unproven, but assigned {given}")
     print(f"logins to delete: {len(delete)}, to strip: {len(strip)}, unproven with an assignment: {len(assigned)}")
     if assigned:
         sys.exit("Unproven logins carry an assignment (KEEP above): nothing was changed. Decide what to do with them, then rerun.")

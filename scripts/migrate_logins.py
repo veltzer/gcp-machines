@@ -33,11 +33,19 @@ def require_default_account(credentials):
         sys.exit(f"Refusing to run as service account '{sa_email}'. Set gcp_identity=default in .gcp.conf.")
 
 
+def key_name(entity: datastore.Entity) -> str:
+    """ The key name of a stored entity: one read from the datastore always has a key. """
+    if entity.key is None:
+        raise ValueError("an entity without a key")
+    name: str = entity.key.name
+    return name
+
+
 def plan(client):
     """ (logins, users, legacy keys to delete) to write, or exits listing assignment conflicts """
     legacy = [entity for entity in client.query(kind="user").fetch() if ":" in entity.key.name]
     logins = []
-    users = {}
+    users: dict[str, datastore.Entity] = {}
     owners = {}
     for old in legacy:
         if client.get(client.key("login", old.key.name)) is not None:
@@ -97,7 +105,7 @@ def main():
         print(f"login {login.key.name}: {joined}{assigned}")
     for user in users:
         assigned = f", assigned {user['owner']}" if user.get("owner") else ""
-        print(f"user {user.key.name}{assigned}")
+        print(f"user {key_name(user)}{assigned}")
     print(f"old accounts to delete: {len(legacy)}")
     if not args.apply:
         print("Dry run; pass --apply to do it.")

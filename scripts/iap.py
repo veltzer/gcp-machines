@@ -133,9 +133,10 @@ def get_role_binding(policy):
     for binding in policy.setdefault("bindings", []):
         if binding["role"] == ROLE:
             return binding["members"]
-    binding = {"role": ROLE, "members": []}
+    members: list[str] = []
+    binding = {"role": ROLE, "members": members}
     policy["bindings"].append(binding)
-    return binding["members"]
+    return members
 
 def iap_enabled(project_id, credentials):
     """

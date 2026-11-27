@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 import typing
+from typing import Any
 
 import google.auth
 from googleapiclient import discovery
@@ -101,7 +102,7 @@ def get_all_instances(project_id, compute):
     """
     Returns the raw list of all instances in the project.
     """
-    all_instances = []
+    all_instances: list[dict[str, Any]] = []
     request = compute.instances().aggregatedList(project=project_id)
     while request is not None:
         response = request.execute()

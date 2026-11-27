@@ -14,7 +14,7 @@ import sys
 import threading
 import unittest.mock
 import urllib.parse
-from typing import override
+from typing import Any, override
 
 import flask.testing
 import pytest
@@ -24,7 +24,9 @@ from googleapiclient.errors import HttpError
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-AGGREGATED_RESPONSE = {
+NO_MACHINES: dict[str, dict[str, Any]] = {"items": {}}
+
+AGGREGATED_RESPONSE: dict[str, Any] = {
     "items": {
         "zones/us-central1-a": {
             "instances": [
@@ -495,7 +497,8 @@ def test_only_the_hash_of_the_token_is_stored():
 def test_email_bad_input():
     module, _fake_compute = load_app()
     client = module.app.test_client()
-    for body in ({"email": "not an email"}, {}, {"email": ["carol@example.com"]}):
+    bodies: tuple[dict[str, object], ...] = ({"email": "not an email"}, {}, {"email": ["carol@example.com"]})
+    for body in bodies:
         response = client.post("/auth/email/register", json=body)
         assert response.status_code == 400
         assert "error" in response.get_json()
@@ -1051,7 +1054,7 @@ def test_admin_sees_how_many_machines_are_up():
 
 def test_admin_without_machines_is_not_told_to_contact_the_instructor():
     module, fake_compute = load_app(ADMIN)
-    fake_compute.instances.return_value.aggregatedList.return_value.execute.return_value = {"items": {}}
+    fake_compute.instances.return_value.aggregatedList.return_value.execute.return_value = NO_MACHINES
     body = signed_in_client(module).get("/").get_data(as_text=True)
     assert "Contact your instructor" not in body
     assert "No machines right now" in body
