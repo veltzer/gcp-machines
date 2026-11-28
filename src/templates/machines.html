@@ -215,8 +215,12 @@
 					a Google or GitHub sign-in the provider vouches for, or a link
 					mailed to the address and followed, makes one.
 				</p>
+				<p class="students-tools">
+					<button id="erase-selected" type="button" class="quiet danger" disabled title="Erase every student ticked in the table">Erase selected</button>
+				</p>
 				<div class="students" role="table" aria-label="Students" data-owners="{{owners|join(',')}}">
 					<div class="student head" role="row">
+						<span role="columnheader"><input id="pick-all" type="checkbox" aria-label="Select every student" title="Select every student"></span>
 						<span role="columnheader">Student</span>
 						<span role="columnheader">Sign-in</span>
 						<span role="columnheader">Machine</span>
@@ -224,6 +228,12 @@
 					</div>
 					{% for row in students %}
 						<div class="student" role="row">
+							<span role="cell">
+								{# no erasing yourself #}
+								{% if row.email != user.email %}
+									<input class="pick" type="checkbox" data-erase="{{row.email}}" data-machines="{{row.machines|join(', ')}}" aria-label="Select {{row.email}}">
+								{% endif %}
+							</span>
 							<span role="cell">
 								<span class="student-name">{{row.name}}</span>
 								{% if row.admin %}<span class="badge">admin</span>{% endif %}
@@ -258,6 +268,7 @@
 					{% endfor %}
 					{% for row in pending %}
 						<div class="student pending" role="row">
+							<span role="cell"><input class="pick" type="checkbox" data-erase="{{row.email}}" data-roster aria-label="Select {{row.email}}"></span>
 							<span role="cell">{{row.email}}</span>
 							<span role="cell"><span class="source">not signed up</span></span>
 							<span role="cell">{{row.owner}} <span class="source">roster</span></span>
@@ -286,26 +297,27 @@
 			</dialog>
 			{% if admin %}
 				{#
-					An Erase or Remove button of the Students table opens this; app.js fills in
-					the student and, for a Remove (a roster address that has not signed up),
-					shows the roster text and posts to /admin/unlist instead.
+					An Erase or Remove button of the Students table opens this for its one
+					student, Erase selected for every one ticked; app.js names them, shows the
+					text for accounts, for roster addresses or both, and adds a hidden input
+					each (email for an account, roster for an address that has not signed up).
 				#}
 				<dialog id="erase-dialog" class="dialog" aria-labelledby="erase-title" aria-describedby="erase-text">
 					<form method="post" action="/admin/erase">
-						<input id="erase-email" type="hidden" name="email" value="">
-						<h2 id="erase-title"><span id="erase-verb">Erase</span> <span id="erase-name">this student</span>?</h2>
+						<h2 id="erase-title">Erase this student?</h2>
+						<ul id="erase-names" class="erase-names" hidden></ul>
 						<div id="erase-text">
 							<p id="erase-account-text">
-								This removes the account for good: the name, the machine
+								Erasing removes an account for good: the name, the machine
 								assignment and limit, and every way the student signs in,
 								a password included. Signing in again later starts a new,
 								empty account.
 							</p>
 							<p id="erase-roster-text" hidden>
-								This takes the address off the roster: signing up with it
-								will get no machine. No machine is deleted. An address
-								still listed in the students file comes back with the next
-								roster sync.
+								An address that has not signed up is taken off the roster:
+								signing up with it will get no machine. No machine is
+								deleted. An address still listed in the students file comes
+								back with the next roster sync.
 							</p>
 						</div>
 						<label id="erase-machines-row" class="check" hidden>

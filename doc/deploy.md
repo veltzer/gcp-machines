@@ -96,10 +96,17 @@ address `data.gi/students.txt` lists shows up again as not signed up and
 may sign up anew, so take it out of the file and run `scripts/iap.py sync`
 to remove it for good.
 
-A roster address that has not signed up has a Remove button instead
-(`POST /admin/unlist`), which deletes its `student` entity so that signing
-up with it gets no machine. Nothing else is touched, and the same holds:
-an address still in `data.gi/students.txt` is back with the next sync.
+A roster address that has not signed up has a Remove button instead,
+which deletes its `student` entity so that signing up with it gets no
+machine. Nothing else is touched, and the same holds: an address still in
+`data.gi/students.txt` is back with the next sync.
+
+Every row but the admin's own also has a checkbox, and Erase selected
+above the table takes all the ticked rows in one go, accounts and roster
+addresses alike. It is the same request as a single erase: `POST
+/admin/erase` takes any number of `email` (accounts) and `roster`
+(addresses that have not signed up) fields, and refuses the whole request
+when one of them is not there.
 
 `scripts/migrate_logins.py` moved the accounts of before (one `user`
 entity per way of signing in) to this layout on 2026-11-15, and

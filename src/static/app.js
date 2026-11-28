@@ -346,34 +346,87 @@ function confirmDeletes() {
 	}
 }
 
-// An Erase button of the admin's Students table (data-erase holds the
-// student's email, data-machines the machines that are theirs alone) opens
-// the erase dialog, whose form does the erasing. The machines go along only
-// when the admin ticks the box, which is offered only when there are any.
-// A Remove button (data-roster, on an address that has not signed up) opens
-// the same dialog to take the address off the roster instead.
+// Erasing on the admin's Students table. Whatever can be erased carries
+// data-erase (the email), data-roster when it is a roster address that has
+// not signed up, and data-machines (the machines that are the student's
+// alone): a row's Erase or Remove button, for that one, and its checkbox,
+// for Erase selected, which takes every ticked row at once. Either opens
+// the erase dialog, which names who goes and whose form does it: a hidden
+// input each, "email" for an account and "roster" for a roster address. The
+// machines go along only when the admin ticks the box, which is offered only
+// when there are any.
 function confirmErases() {
 	const dialog = $("erase-dialog");
 	if (!dialog) {
 		return;
 	}
+	const form = dialog.querySelector("form");
+	const target = (node) => ({
+		email: node.dataset.erase,
+		roster: "roster" in node.dataset,
+		machines: node.dataset.machines || "",
+	});
+	const open = (targets) => {
+		for (const old of form.querySelectorAll("input[type=hidden]")) {
+			old.remove();
+		}
+		const names = $("erase-names");
+		names.replaceChildren();
+		for (const { email, roster } of targets) {
+			const input = el("input");
+			input.type = "hidden";
+			input.name = roster ? "roster" : "email";
+			input.value = email;
+			form.prepend(input);
+			names.append(el("li", null, roster ? `${email} (not signed up: off the roster)` : email));
+		}
+		const one = targets.length === 1;
+		const rosterOnly = targets.every((t) => t.roster);
+		const what = rosterOnly ? "from the roster" : "";
+		$("erase-title").textContent = one
+			? `${rosterOnly ? "Remove" : "Erase"} ${targets[0].email}?`
+			: `${rosterOnly ? "Remove" : "Erase"} ${targets.length} students ${what}?`.replace(" ?", "?");
+		$("erase-confirm").textContent = one
+			? (rosterOnly ? "Remove from roster" : "Erase student")
+			: `${rosterOnly ? "Remove" : "Erase"} ${targets.length} students`;
+		names.hidden = one;
+		$("erase-account-text").hidden = rosterOnly;
+		$("erase-roster-text").hidden = !targets.some((t) => t.roster);
+		const machines = targets.filter((t) => t.machines).map((t) => t.machines).join(", ");
+		$("erase-machines").checked = false;
+		$("erase-machines-row").hidden = !machines;
+		$("erase-machines-names").textContent = machines;
+		dialog.showModal();
+		$("erase-cancel").focus();
+	};
 	for (const button of document.querySelectorAll("button[data-erase]")) {
-		button.onclick = () => {
-			const roster = "roster" in button.dataset;
-			dialog.querySelector("form").action = roster ? "/admin/unlist" : "/admin/erase";
-			$("erase-verb").textContent = roster ? "Remove" : "Erase";
-			$("erase-confirm").textContent = roster ? "Remove from roster" : "Erase student";
-			$("erase-account-text").hidden = roster;
-			$("erase-roster-text").hidden = !roster;
-			$("erase-email").value = button.dataset.erase;
-			$("erase-name").textContent = button.dataset.erase;
-			$("erase-machines").checked = false;
-			$("erase-machines-row").hidden = roster || !button.dataset.machines;
-			$("erase-machines-names").textContent = button.dataset.machines || "";
-			dialog.showModal();
-			$("erase-cancel").focus();
-		};
+		button.onclick = () => open([target(button)]);
 	}
+	// the ticked rows: Erase selected says how many and is off when there are none
+	const picks = [...document.querySelectorAll("input.pick")];
+	const all = $("pick-all");
+	const selected = $("erase-selected");
+	const picked = () => picks.filter((pick) => pick.checked);
+	const count = () => {
+		const n = picked().length;
+		selected.disabled = n === 0;
+		selected.textContent = n === 0 ? "Erase selected" : `Erase selected (${n})`;
+		all.checked = n > 0 && n === picks.length;
+		all.indeterminate = n > 0 && n < picks.length;
+	};
+	for (const pick of picks) {
+		pick.onchange = count;
+	}
+	all.disabled = picks.length === 0;
+	all.onchange = () => {
+		for (const pick of picks) {
+			pick.checked = all.checked;
+		}
+		count();
+	};
+	selected.onclick = () => open(picked().map(target));
+	// a page the browser brought back may come with boxes still ticked
+	count();
 	$("erase-cancel").onclick = () => dialog.close();
 	dialog.onclick = (event) => {
 		if (event.target === dialog) {

@@ -1044,10 +1044,10 @@ def test_admin_removes_a_roster_address_that_has_not_signed_up() -> None:
     # only the address that has not signed up is offered for removal
     assert 'data-erase="raz@gmail.com" data-roster' in body
     assert 'data-erase="keren@gmail.com" data-roster' not in body
-    response = admin.post("/admin/unlist", data={"email": "raz@gmail.com"}, follow_redirects=True)
+    response = admin.post("/admin/erase", data={"roster": "raz@gmail.com"}, follow_redirects=True)
     body = response.get_data(as_text=True)
     assert "Removed raz@gmail.com from the roster" in body
-    assert "not signed up" not in body
+    assert '<span class="source">not signed up</span>' not in body
     assert [s.key.name for s in module.datastore_client.students] == ["keren@gmail.com"]
     fake_compute.instances.return_value.delete.assert_not_called()
     # signing up with the address now gets no machine
@@ -1059,10 +1059,51 @@ def test_only_admins_change_the_roster() -> None:
     module, _fake_compute = load_app(ADMIN)
     set_mapping(module, {"raz@gmail.com": "raz"})
     student = signed_in_client(module, "keren@gmail.com")
-    assert student.post("/admin/unlist", data={"email": "raz@gmail.com"}).status_code == 403
-    assert module.app.test_client().post("/admin/unlist", data={"email": "raz@gmail.com"}).status_code == 302
+    assert student.post("/admin/erase", data={"roster": "raz@gmail.com"}).status_code == 403
+    assert module.app.test_client().post("/admin/erase", data={"roster": "raz@gmail.com"}).status_code == 302
     assert len(module.datastore_client.students) == 1
-    assert signed_in_client(module).post("/admin/unlist", data={"email": "ghost@example.com"}).status_code == 404
+    assert signed_in_client(module).post("/admin/erase", data={"roster": "ghost@example.com"}).status_code == 404
+
+
+def test_admin_erases_several_students_at_once() -> None:
+    module, fake_compute = load_app(ADMIN)
+    set_mapping(module, {"keren@gmail.com": "keren", "raz@gmail.com": "raz"})
+    add_user(module, "google:keren", "keren@gmail.com")
+    add_user(module, "email:dana@example.com", "dana@example.com")
+    add_user(module, "email:noa@example.com", "noa@example.com")
+    admin = signed_in_client(module)
+    body = admin.get("/").get_data(as_text=True)
+    # every row but the admin's own can be ticked, and one button takes the ticked ones
+    assert 'id="erase-selected"' in body
+    assert body.count('class="pick"') == 4
+    assert 'class="pick" type="checkbox" data-erase="admin@gmail.com"' not in body
+    response = admin.post("/admin/erase", data={
+        "email": ["keren@gmail.com", "dana@example.com"], "roster": ["raz@gmail.com"], "machines": "yes",
+    }, follow_redirects=True)
+    body = response.get_data(as_text=True)
+    assert "Erased dana@example.com, keren@gmail.com: the accounts and every way they signed in." in body
+    assert "Deleting machine-keren and everything on it." in body
+    assert "The roster still lists keren@gmail.com, so it can sign up again." in body
+    assert "Removed raz@gmail.com from the roster." in body
+    entities = module.datastore_client.entities
+    assert sorted(name for kind, name in entities if kind == "user") == ["admin@gmail.com", "noa@example.com"]
+    assert [s.key.name for s in module.datastore_client.students] == ["keren@gmail.com"]
+    # only keren's machine goes: raz's is not of an account that was erased
+    fake_compute.instances.return_value.delete.assert_called_once_with(
+        project="test-project", zone="us-central1-a", instance="machine-keren")
+
+
+def test_an_erase_of_several_is_all_or_nothing() -> None:
+    module, _fake_compute = load_app(ADMIN)
+    set_mapping(module, {"raz@gmail.com": "raz"})
+    add_user(module, "email:dana@example.com", "dana@example.com")
+    admin = signed_in_client(module)
+    assert admin.post("/admin/erase", data={"email": ["dana@example.com", "ghost@example.com"]}).status_code == 404
+    assert admin.post("/admin/erase", data={"email": ["dana@example.com", "admin@gmail.com"]}).status_code == 400
+    assert admin.post("/admin/erase", data={"email": ["dana@example.com"], "roster": ["ghost@example.com"]}).status_code == 404
+    assert admin.post("/admin/erase", data={}).status_code == 400
+    assert ("user", "dana@example.com") in module.datastore_client.entities
+    assert len(module.datastore_client.students) == 1
 
 
 # ─── machine keys ────────────────────────────────────────────────────────────

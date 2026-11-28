@@ -575,60 +575,73 @@ def assign() -> Response:
 @auth.login_required
 def erase() -> Response:
     """
-    Erase a user for good: the account, every way they sign in and any
-    verification link still out. With "machines" posted, also the machines
-    that are theirs alone (see students_table), disks and keys included.
-    Admins only, and never the admin's own account.
+    Erase students for good, any number at once. Each "email" posted is a
+    user: the account, every way they sign in and any verification link
+    still out go, and with "machines" posted also the machines that are
+    theirs alone (see students_table), disks and keys included. Each
+    "roster" posted is an address to take off the course roster (kind
+    "student"), so that signing up with it gets no machine; the roster is
+    pushed from data.gi/students.txt, so an address still in that file is
+    back with the next `scripts/iap.py sync`. Admins only, never the
+    admin's own account, and all or nothing: one address that is not there
+    refuses the whole request.
     """
     admin = auth.current_user()
     if not is_admin(admin):
         flask.abort(403, "Only an admin may erase a student.")
-    email = flask.request.form["email"]
-    if email == admin.email:
+    emails = sorted(set(flask.request.form.getlist("email")))
+    listed = sorted(set(flask.request.form.getlist("roster")))
+    if not emails and not listed:
+        flask.abort(400, "Nobody was chosen to erase.")
+    if admin.email in emails:
         flask.abort(400, "You cannot erase your own account.")
     machines = get_machines()
     rows, _pending = students_table(machines)
-    row = next((row for row in rows if row["email"] == email), None)
-    if row is None:
+    by_email = {row["email"]: row for row in rows}
+    if any(email not in by_email for email in emails):
         flask.abort(404, "There is no such user.")
-    # the machines go first: should one fail, the student is still there to erase again
-    deleted = row["machines"] if flask.request.form.get("machines") else []
+    roster_keys = [datastore_client.key("student", email) for email in listed]
+    if any(datastore_client.get(key) is None for key in roster_keys):
+        flask.abort(404, "The roster has no such address.")
+    # the machines go first: should one fail, the students are still there to erase again
+    deleted = sorted({name for email in emails for name in by_email[email]["machines"]}) if flask.request.form.get("machines") else []
     for machine in machines:
         if machine["name"] in deleted:
             compute.instances().delete(project=project_id, zone=machine["zone"], instance=machine["name"]).execute(http=api_http())
             provision.delete_key(secret_manager, project_id, machine["name"], http=api_http())
-    users.erase(datastore_client, email)
-    auth.forget_mail(email)
-    message = f"Erased {email}: the account and every way it signed in."
+    for email in emails:
+        users.erase(datastore_client, email)
+        auth.forget_mail(email)
+    for key in roster_keys:
+        datastore_client.delete(key)
+    if roster_keys:
+        # this server shows the change at once; another one within MAPPING_TTL_SECONDS
+        _mapping_cache["expiry"] = 0.0
+    return done(" ".join(erased_message(emails, listed, deleted)))
+
+
+def erased_message(emails: list[str], listed: list[str], deleted: list[str]) -> list[str]:
+    """ what an erase did, a sentence each: the accounts, their machines, what the roster still holds, the roster addresses """
+    def it(names: list[str]) -> str:
+        return "it" if len(names) == 1 else "them"
+    message = []
+    if emails:
+        one = len(emails) == 1
+        message.append(f"Erased {', '.join(emails)}: the account{'' if one else 's'} and every way {'it' if one else 'they'} signed in.")
     if deleted:
-        message += f" Deleting {', '.join(deleted)} and everything on {'it' if len(deleted) == 1 else 'them'}."
-    if email in email_to_owner():
-        message += " The roster still lists the address, so it can sign up again."
-    return done(message)
-
-
-@app.route("/admin/unlist", methods=["POST"])
-@auth.login_required
-def unlist() -> Response:
-    """
-    Take an address off the course roster (kind "student"), so it gets no
-    machine by signing up. Admins only. Machines and accounts are not
-    touched. The roster is pushed from data.gi/students.txt, so an address
-    still in that file is back with the next `scripts/iap.py sync`.
-    """
-    if not is_admin(auth.current_user()):
-        flask.abort(403, "Only an admin may change the roster.")
-    email = flask.request.form["email"]
-    key = datastore_client.key("student", email)
-    if datastore_client.get(key) is None:
-        flask.abort(404, "The roster has no such address.")
-    datastore_client.delete(key)
-    # this server shows the change at once; another one within MAPPING_TTL_SECONDS
-    _mapping_cache["expiry"] = 0.0
-    return done(
-        f"Removed {email} from the roster. Take it out of data.gi/students.txt too, "
-        "or the next roster sync brings it back."
-    )
+        message.append(f"Deleting {', '.join(deleted)} and everything on {it(deleted)}.")
+    still = [email for email in emails if email in email_to_owner()]
+    if still:
+        message.append(
+            "The roster still lists the address, so it can sign up again." if len(emails) == 1
+            else f"The roster still lists {', '.join(still)}, so {it(still)} can sign up again."
+        )
+    if listed:
+        message.append(
+            f"Removed {', '.join(listed)} from the roster. Take {it(listed)} out of data.gi/students.txt too, "
+            f"or the next roster sync brings {it(listed)} back."
+        )
+    return message
 
 
 @app.route("/account/name", methods=["POST"])

@@ -858,10 +858,10 @@ button:disabled {
 
 .student {
 	display: grid;
-	grid-template-columns: minmax(12rem, 2fr) minmax(6rem, 1fr) minmax(8rem, 1fr) minmax(23rem, 1.5fr);
+	grid-template-columns: 1.25rem minmax(12rem, 2fr) minmax(6rem, 1fr) minmax(8rem, 1fr) minmax(23rem, 1.5fr);
 	align-items: center;
 	gap: 0.5rem 1rem;
-	min-width: 53rem;
+	min-width: 55rem;
 	padding: 0.6rem 0.9rem;
 	border-bottom: 1px solid var(--line);
 }
@@ -891,6 +891,23 @@ button:disabled {
 	gap: 0.4rem;
 	align-items: center;
 	margin: 0;
+}
+
+/* Erase selected, above the table's right edge */
+.students-tools {
+	display: flex;
+	justify-content: flex-end;
+	margin: 0 0 0.5rem;
+}
+
+/* who an erase of several takes, in its dialog */
+.erase-names {
+	max-height: 12rem;
+	margin: 0 0 1rem;
+	padding-left: 1.25rem;
+	overflow-y: auto;
+	font-size: 0.9rem;
+	overflow-wrap: anywhere;
 }
 
 /* the assign form and the Erase button, side by side */
