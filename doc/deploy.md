@@ -96,6 +96,11 @@ address `data.gi/students.txt` lists shows up again as not signed up and
 may sign up anew, so take it out of the file and run `scripts/iap.py sync`
 to remove it for good.
 
+A roster address that has not signed up has a Remove button instead
+(`POST /admin/unlist`), which deletes its `student` entity so that signing
+up with it gets no machine. Nothing else is touched, and the same holds:
+an address still in `data.gi/students.txt` is back with the next sync.
+
 `scripts/migrate_logins.py` moved the accounts of before (one `user`
 entity per way of signing in) to this layout on 2026-11-15, and
 `scripts/migrate_verified_only.py` removes the logins that were never

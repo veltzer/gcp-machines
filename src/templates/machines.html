@@ -261,7 +261,9 @@
 							<span role="cell">{{row.email}}</span>
 							<span role="cell"><span class="source">not signed up</span></span>
 							<span role="cell">{{row.owner}} <span class="source">roster</span></span>
-							<span role="cell">&ndash;</span>
+							<span role="cell">
+								<button type="button" class="quiet danger" data-erase="{{row.email}}" data-roster title="Take this address off the roster">Remove</button>
+							</span>
 						</div>
 					{% endfor %}
 				</div>
@@ -283,24 +285,36 @@
 				</form>
 			</dialog>
 			{% if admin %}
-				{# an Erase button of the Students table opens this; app.js fills in the student, Erase posts the form #}
+				{#
+					An Erase or Remove button of the Students table opens this; app.js fills in
+					the student and, for a Remove (a roster address that has not signed up),
+					shows the roster text and posts to /admin/unlist instead.
+				#}
 				<dialog id="erase-dialog" class="dialog" aria-labelledby="erase-title" aria-describedby="erase-text">
 					<form method="post" action="/admin/erase">
 						<input id="erase-email" type="hidden" name="email" value="">
-						<h2 id="erase-title">Erase <span id="erase-name">this student</span>?</h2>
-						<p id="erase-text">
-							This removes the account for good: the name, the machine
-							assignment and limit, and every way the student signs in,
-							a password included. Signing in again later starts a new,
-							empty account.
-						</p>
+						<h2 id="erase-title"><span id="erase-verb">Erase</span> <span id="erase-name">this student</span>?</h2>
+						<div id="erase-text">
+							<p id="erase-account-text">
+								This removes the account for good: the name, the machine
+								assignment and limit, and every way the student signs in,
+								a password included. Signing in again later starts a new,
+								empty account.
+							</p>
+							<p id="erase-roster-text" hidden>
+								This takes the address off the roster: signing up with it
+								will get no machine. No machine is deleted. An address
+								still listed in the students file comes back with the next
+								roster sync.
+							</p>
+						</div>
 						<label id="erase-machines-row" class="check" hidden>
 							<input id="erase-machines" type="checkbox" name="machines" value="yes">
 							<span>Also delete <strong id="erase-machines-names">the machines</strong> and every file on them, for good</span>
 						</label>
 						<div class="dialog-actions">
 							<button type="button" class="quiet" id="erase-cancel">Cancel</button>
-							<button type="submit" class="danger">Erase student</button>
+							<button id="erase-confirm" type="submit" class="danger">Erase student</button>
 						</div>
 					</form>
 				</dialog>

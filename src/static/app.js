@@ -318,6 +318,8 @@ function confirmDeletes() {
 // student's email, data-machines the machines that are theirs alone) opens
 // the erase dialog, whose form does the erasing. The machines go along only
 // when the admin ticks the box, which is offered only when there are any.
+// A Remove button (data-roster, on an address that has not signed up) opens
+// the same dialog to take the address off the roster instead.
 function confirmErases() {
 	const dialog = $("erase-dialog");
 	if (!dialog) {
@@ -325,11 +327,17 @@ function confirmErases() {
 	}
 	for (const button of document.querySelectorAll("button[data-erase]")) {
 		button.onclick = () => {
+			const roster = "roster" in button.dataset;
+			dialog.querySelector("form").action = roster ? "/admin/unlist" : "/admin/erase";
+			$("erase-verb").textContent = roster ? "Remove" : "Erase";
+			$("erase-confirm").textContent = roster ? "Remove from roster" : "Erase student";
+			$("erase-account-text").hidden = roster;
+			$("erase-roster-text").hidden = !roster;
 			$("erase-email").value = button.dataset.erase;
 			$("erase-name").textContent = button.dataset.erase;
 			$("erase-machines").checked = false;
-			$("erase-machines-row").hidden = !button.dataset.machines;
-			$("erase-machines-names").textContent = button.dataset.machines;
+			$("erase-machines-row").hidden = roster || !button.dataset.machines;
+			$("erase-machines-names").textContent = button.dataset.machines || "";
 			dialog.showModal();
 			$("erase-cancel").focus();
 		};

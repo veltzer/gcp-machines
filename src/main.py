@@ -585,6 +585,30 @@ def erase() -> Response:
     return done(message)
 
 
+@app.route("/admin/unlist", methods=["POST"])
+@auth.login_required
+def unlist() -> Response:
+    """
+    Take an address off the course roster (kind "student"), so it gets no
+    machine by signing up. Admins only. Machines and accounts are not
+    touched. The roster is pushed from data.gi/students.txt, so an address
+    still in that file is back with the next `scripts/iap.py sync`.
+    """
+    if not is_admin(auth.current_user()):
+        flask.abort(403, "Only an admin may change the roster.")
+    email = flask.request.form["email"]
+    key = datastore_client.key("student", email)
+    if datastore_client.get(key) is None:
+        flask.abort(404, "The roster has no such address.")
+    datastore_client.delete(key)
+    # this server shows the change at once; another one within MAPPING_TTL_SECONDS
+    _mapping_cache["expiry"] = 0.0
+    return done(
+        f"Removed {email} from the roster. Take it out of data.gi/students.txt too, "
+        "or the next roster sync brings it back."
+    )
+
+
 @app.route("/account/name", methods=["POST"])
 @auth.login_required
 def set_name() -> Response:

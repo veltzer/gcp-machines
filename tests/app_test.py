@@ -108,9 +108,13 @@ class FakeDatastore:
         return FakeKey(kind, name)
 
     def get(self, key: Any):
+        if key.kind == "student":
+            return next((s for s in self.students if s.key.name == key.name), None)
         return self.entities.get((key.kind, key.name))
 
     def delete(self, key: Any) -> None:
+        if key.kind == "student":
+            self.students = [s for s in self.students if s.key.name != key.name]
         self.entities.pop((key.kind, key.name), None)
 
     def put(self, entity: Any) -> None:
@@ -1029,6 +1033,36 @@ def test_only_admins_erase_and_never_themselves() -> None:
     assert 'data-erase="admin@gmail.com"' not in body
     assert 'id="erase-dialog"' in body
     assert 'id="erase-dialog"' not in student.get("/").get_data(as_text=True)
+
+
+def test_admin_removes_a_roster_address_that_has_not_signed_up() -> None:
+    module, fake_compute = load_app(ADMIN)
+    set_mapping(module, {"keren@gmail.com": "keren", "raz@gmail.com": "raz"})
+    add_user(module, "google:keren", "keren@gmail.com")
+    admin = signed_in_client(module)
+    body = admin.get("/").get_data(as_text=True)
+    # only the address that has not signed up is offered for removal
+    assert 'data-erase="raz@gmail.com" data-roster' in body
+    assert 'data-erase="keren@gmail.com" data-roster' not in body
+    response = admin.post("/admin/unlist", data={"email": "raz@gmail.com"}, follow_redirects=True)
+    body = response.get_data(as_text=True)
+    assert "Removed raz@gmail.com from the roster" in body
+    assert "not signed up" not in body
+    assert [s.key.name for s in module.datastore_client.students] == ["keren@gmail.com"]
+    fake_compute.instances.return_value.delete.assert_not_called()
+    # signing up with the address now gets no machine
+    raz = signed_in_client(module, "raz@gmail.com")
+    assert "No machine is assigned to you" in raz.get("/").get_data(as_text=True)
+
+
+def test_only_admins_change_the_roster() -> None:
+    module, _fake_compute = load_app(ADMIN)
+    set_mapping(module, {"raz@gmail.com": "raz"})
+    student = signed_in_client(module, "keren@gmail.com")
+    assert student.post("/admin/unlist", data={"email": "raz@gmail.com"}).status_code == 403
+    assert module.app.test_client().post("/admin/unlist", data={"email": "raz@gmail.com"}).status_code == 302
+    assert len(module.datastore_client.students) == 1
+    assert signed_in_client(module).post("/admin/unlist", data={"email": "ghost@example.com"}).status_code == 404
 
 
 # ─── machine keys ────────────────────────────────────────────────────────────
