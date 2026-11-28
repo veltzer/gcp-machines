@@ -858,10 +858,11 @@ button:disabled {
 
 .student {
 	display: grid;
-	grid-template-columns: 1.25rem minmax(12rem, 2fr) minmax(6rem, 1fr) minmax(8rem, 1fr) minmax(23rem, 1.5fr);
+	/* the least the columns take (with the gaps and the padding, about 51rem) fits the page's 900px, so the table scrolls sideways only on a narrow screen */
+	grid-template-columns: 1.25rem minmax(10rem, 2fr) minmax(5.5rem, 1fr) minmax(7rem, 1fr) minmax(21.5rem, 1.5fr);
 	align-items: center;
 	gap: 0.5rem 1rem;
-	min-width: 55rem;
+	min-width: 49.25rem;
 	padding: 0.6rem 0.9rem;
 	border-bottom: 1px solid var(--line);
 }
