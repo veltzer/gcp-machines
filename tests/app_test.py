@@ -1384,23 +1384,35 @@ def sign_in(client: Any, email: str = "dana@proton.me", password: str = "longeno
 
 def test_version_reports_deploy_stamp_and_revision() -> None:
     module, _fake_compute = load_app()
-    module.app.config["BUILD_INFO"] = {"deploy_date": "2026-11-14T21:00:00Z", "git_describe": "dd8e1e0"}
+    module.app.config["BUILD_INFO"] = {"deploy_date": "2026-11-14T21:00:00Z", "git_describe": "dd8e1e0", "built_at": "unknown"}
     with unittest.mock.patch.dict(os.environ, {"K_REVISION": "machines-00011-abc"}):
         response = module.app.test_client().get("/app/version")
     assert response.status_code == 200
-    assert response.get_json() == {
+    info = response.get_json()
+    # when this server started, in UTC
+    assert info.pop("started_at").endswith("+00:00")
+    assert info == {
         "deploy_date": "2026-11-14T21:00:00Z",
         "git_describe": "dd8e1e0",
+        "built_at": "unknown",
         "revision": "machines-00011-abc",
     }
 
 
-def test_both_pages_carry_the_build_footer() -> None:
+def test_the_about_page_and_no_build_in_the_footers() -> None:
+    # the build serving is on the About page alone: the other pages are the same for every build
     module, _fake_compute = load_app(ADMIN)
-    signed_out = module.app.test_client().get("/").get_data(as_text=True)
-    signed_in = signed_in_client(module).get("/").get_data(as_text=True)
-    for body in (signed_out, signed_in):
-        assert '<p class="inscription" id="build"></p>' in body
+    anonymous = module.app.test_client()
+    about = anonymous.get("/about")
+    assert about.status_code == 200
+    body = about.get_data(as_text=True)
+    assert 'data-page="about"' in body
+    assert 'id="about-facts"' in body
+    pages = [body] + [anonymous.get(path).get_data(as_text=True) for path in ("/", "/privacy", "/verify")]
+    pages.append(signed_in_client(module).get("/").get_data(as_text=True))
+    for page in pages:
+        assert 'id="build"' not in page
+        assert '<a href="/privacy">Privacy</a> &middot; <a href="/about">About</a>' in page
 
 
 @pytest.mark.parametrize(("subject", "icon", "name"), [

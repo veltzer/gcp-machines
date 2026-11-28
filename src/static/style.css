@@ -546,6 +546,38 @@ button:disabled:hover {
 	color: var(--muted);
 }
 
+/* the About page: wider than the sign-in card, for the two lines of each time */
+.card.about {
+	max-width: 560px;
+}
+
+.card.about h2 {
+	margin: 1.25rem 0 0.5rem;
+	font-size: 1.1rem;
+}
+
+/* its facts of the build: a label, then its value; a time in UTC, then in the reader's zone */
+.about-facts {
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	gap: 0.5rem 1rem;
+	margin: 0 0 0.75rem;
+}
+
+.about-facts dt {
+	color: var(--muted);
+}
+
+.about-facts dd {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+.about-facts .muted {
+	color: var(--muted);
+	font-size: 0.9em;
+}
+
 /* the three ways in, one tile each: Google, GitHub, Email */
 .methods {
 	display: grid;

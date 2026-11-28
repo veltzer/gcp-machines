@@ -39,16 +39,29 @@ HTML_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "html")
 # The deploy stamp gcloud_deploy.sh (utils-bash) writes at the repo (and
 # image) root just before deploying: when, and from which commit. Absent in
 # development.
-BUILD_INFO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "build_info.json")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BUILD_INFO = os.path.join(ROOT, "build_info.json")
+# when the image was built (UTC), written by the Dockerfile. Absent in development.
+BUILD_TIME = os.path.join(ROOT, "build_time")
 
 
 def load_build_info():
-    """ the deploy stamp, or placeholders when there is none (development) """
+    """
+    The deploy stamp (deploy_date: when it was deployed; git_describe: the
+    commit) and built_at, when the image was built; placeholders for
+    whichever is absent (development).
+    """
     try:
         with open(BUILD_INFO, encoding="utf-8") as stream:
-            return json.load(stream)
+            info = json.load(stream)
     except FileNotFoundError:
-        return {"deploy_date": "unknown", "git_describe": "dev"}
+        info = {"deploy_date": "unknown", "git_describe": "dev"}
+    try:
+        with open(BUILD_TIME, encoding="utf-8") as stream:
+            info["built_at"] = stream.read().strip()
+    except FileNotFoundError:
+        info["built_at"] = "unknown"
+    return info
 
 
 def secret_key() -> str:
@@ -72,6 +85,8 @@ app.config["SESSION_COOKIE_SECURE"] = "K_SERVICE" in os.environ
 # The hostname the service is meant to be reached on; empty in development.
 app.config["CANONICAL_HOST"] = os.environ.get("CANONICAL_HOST", "")
 app.config["BUILD_INFO"] = load_build_info()
+# when this server started (UTC), for the About page
+app.config["STARTED_AT"] = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
 auth.configure(app)
 
 
@@ -338,10 +353,11 @@ def health() -> str:
 
 @app.route("/app/version", methods=["GET"])
 def version() -> Response:
-    """ what is serving: the deploy stamp plus the Cloud Run revision """
+    """ the build serving: deploy_date and git_describe (the deploy stamp), built_at, started_at and revision """
     info = dict(app.config["BUILD_INFO"])
     # Cloud Run injects the serving revision name at runtime
     info["revision"] = os.environ.get("K_REVISION", "local")
+    info["started_at"] = app.config["STARTED_AT"]
     return flask.jsonify(info)
 
 
@@ -413,6 +429,12 @@ def verify_page() -> Response:
 def privacy_page() -> Response:
     """ what the site keeps about its users; public, Google's consent screen links to it """
     return flask.send_from_directory(HTML_DIR, "privacy.html")
+
+
+@app.route("/about", methods=["GET"])
+def about_page() -> Response:
+    """ what Machines is, who wrote it, and the build serving (its page reads /app/version); public """
+    return flask.send_from_directory(HTML_DIR, "about.html")
 
 
 @app.route("/", methods=["GET"])

@@ -4,7 +4,7 @@
 
 // Browser side of the machines app: the sign-in page (index.html, following
 // gcp-myworld's), the page the mailed link leads to (verify.html) and the
-// copy buttons of the machines page.
+// machines page, and the About page's facts of the build serving.
 
 const $ = (id) => document.getElementById(id);
 
@@ -28,52 +28,84 @@ function showError(message) {
 	box.hidden = !message;
 }
 
-// ─── footer (both pages) ────────────────────────────────────────────────────
+// ─── footer (every page) ────────────────────────────────────────────────────
+
+// The footer's copyright year: this year, as the reader's clock says it. (The
+// build serving is on the About page, not on every page: a page the same for
+// every build is one the browser may keep.)
+function showYear() {
+	for (const year of document.querySelectorAll(".copyright-year")) {
+		year.textContent = String(new Date().getFullYear());
+	}
+}
+
+// ─── about page ─────────────────────────────────────────────────────────────
 
 const REPO = "veltzer/gcp-machines";
 
+function el(tag, className, text) {
+	const node = document.createElement(tag);
+	if (className) {
+		node.className = className;
+	}
+	if (text !== undefined) {
+		node.textContent = text;
+	}
+	return node;
+}
+
 function link(href, ...children) {
-	const a = document.createElement("a");
+	const a = el("a");
 	a.href = href;
 	a.append(...children);
 	return a;
 }
 
-// The footer's provenance, as gcp-myworld's: the year and the commit come
-// from the deploy stamp, so the same deploy always says the same.
-async function showBuild() {
-	const build = $("build");
-	if (!build) {
-		return;
+// "2026-11-23 10:04:05 UTC", and "23 November 2026, 12:04:05 (Asia/Jerusalem)" in the reader's zone
+function bothZones(iso) {
+	const when = new Date(iso);
+	const utc = el("time", null, `${when.toISOString().slice(0, 19).replace("T", " ")} UTC`);
+	utc.dateTime = when.toISOString();
+	const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+	const local = new Intl.DateTimeFormat(undefined, { dateStyle: "long", timeStyle: "medium" }).format(when);
+	const box = el("span");
+	box.append(utc, el("br"), el("span", "muted", `${local} (${zone || "your time zone"})`));
+	return box;
+}
+
+function buildTime(iso) {
+	return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(iso || "") ? bothZones(iso) : "not known (a build run locally)";
+}
+
+// The About page: the build serving (/app/version): the commit it was built
+// from, when it was deployed and built, when this server started, and the
+// Cloud Run revision. Every time is said in UTC and in the reader's own zone.
+async function aboutPage() {
+	const info = await api("/app/version");
+	const list = $("about-facts");
+	const fact = (label, value) => {
+		const dd = el("dd");
+		dd.append(value);
+		list.append(el("dt", null, label), dd);
+	};
+	list.replaceChildren();
+	// "v1.2-3-gabc1234-dirty": the commit is its last part
+	const commit = (info.git_describe || "").match(/(?:-g)?([0-9a-f]{7,40})(?:-dirty)?$/);
+	if (commit) {
+		const source = el("span");
+		source.append(
+			link(`https://github.com/${REPO}`, REPO),
+			" at ",
+			link(`https://github.com/${REPO}/commit/${commit[1]}`, el("code", null, commit[1])),
+		);
+		fact("Source", source);
+	} else {
+		fact("Source", info.git_describe || "not known");
 	}
-	try {
-		const info = await api("/app/version");
-		const deployed = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(info.deploy_date || "") ? info.deploy_date : null;
-		for (const year of document.querySelectorAll(".copyright-year")) {
-			year.textContent = (deployed || new Date().toISOString()).slice(0, 4);
-		}
-		const commit = (info.git_describe || "").match(/(?:-g)?([0-9a-f]{7,40})(?:-dirty)?$/);
-		build.append("Built");
-		if (commit) {
-			const code = document.createElement("code");
-			code.textContent = commit[1];
-			build.append(
-				" from ",
-				link(`https://github.com/${REPO}`, REPO),
-				" commit ",
-				link(`https://github.com/${REPO}/commit/${commit[1]}`, code),
-			);
-		}
-		if (deployed) {
-			const time = document.createElement("time");
-			time.dateTime = deployed;
-			time.textContent = `${deployed.slice(0, 16).replace("T", " ")} UTC`;
-			build.append(" on ", time);
-		}
-		build.append(info.revision && info.revision !== "local" ? `, serving as ${info.revision}` : " (local)");
-	} catch {
-		// cosmetic only
-	}
+	fact("Deployed", buildTime(info.deploy_date));
+	fact("Built", buildTime(info.built_at));
+	fact("This server started", buildTime(info.started_at));
+	fact("Serving as", info.revision && info.revision !== "local" ? info.revision : "a local server");
 }
 
 // ─── sign-in page ───────────────────────────────────────────────────────────
@@ -419,12 +451,14 @@ function machinesPage() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-	showBuild();
+	showYear();
 	const page = document.body.dataset.page;
 	if (page === "index") {
 		indexPage().catch((e) => showError(e.message));
 	} else if (page === "verify") {
 		verifyPage().catch((e) => showError(e.message));
+	} else if (page === "about") {
+		aboutPage().catch((e) => showError(e.message));
 	} else if (page === "machines") {
 		machinesPage();
 	}

@@ -17,6 +17,9 @@ COPY src ./src
 # The deploy stamp is written by gcloud_deploy.sh just before deploying;
 # building without it fails on purpose so an unstamped image never ships.
 COPY build_info.json ./
+# when the image was built (UTC), for the About page; after the stamp, which
+# is new on every deploy, so this layer is never a cached one
+RUN date --utc --iso-8601=seconds > build_time
 
 ENV PATH="/app/.venv/bin:$PATH"
 
