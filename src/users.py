@@ -263,6 +263,27 @@ def assign(client: Any, email: str, owner: str, machine_limit: int | None = None
     return True
 
 
+def erase(client: Any, email: str) -> bool:
+    """
+    Remove the user of an email for good: the user, every login that joined
+    it and any link mailed to the address that was not followed yet. Returns
+    False when there is no such user. Nothing of the person is left, so the
+    same address signing in later starts a new user from nothing.
+    """
+    query = client.query(kind=LOGIN)
+    query.add_filter(filter=datastore.query.PropertyFilter("user", "=", email))
+    logins = [login.key for login in query.fetch()]
+    with client.transaction():
+        user = get_user(client, email)
+        if user is None:
+            return False
+        for key in logins:
+            client.delete(key)
+        client.delete(client.key(VERIFICATION, email))
+        client.delete(user.key)
+    return True
+
+
 # the longest name a user may set (also the name field's maxlength in machines.html)
 NAME_MAX_LENGTH = 60
 

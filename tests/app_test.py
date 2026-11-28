@@ -959,6 +959,78 @@ def test_assign_refuses_unknown_machines_and_users() -> None:
     assert admin.post("/admin/assign", data={"email": "email:dana@example.com", "owner": "raz"}).status_code == 404
 
 
+# ─── erasing students ────────────────────────────────────────────────────────
+
+def test_admin_erases_a_student_and_every_way_they_sign_in() -> None:
+    module, fake_compute = load_app(ADMIN)
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    add_user(module, "google:keren", "keren@gmail.com")
+    add_user(module, "email:keren@gmail.com", "keren@gmail.com")
+    add_user(module, "email:dana@example.com", "dana@example.com")
+    module.users.save_verification(module.datastore_client, "keren@gmail.com", "hash")
+    keren = module.app.test_client()
+    with keren.session_transaction() as session:
+        session["subject"] = "google:keren"
+    response = signed_in_client(module).post("/admin/erase", data={"email": "keren@gmail.com"}, follow_redirects=True)
+    body = response.get_data(as_text=True)
+    assert "Erased keren@gmail.com" in body
+    # still on the roster, so the address is back among those not signed up
+    assert "it can sign up again" in body
+    entities = module.datastore_client.entities
+    assert not [key for key in entities if key[1].endswith("keren@gmail.com") or key[1] == "google:keren"]
+    assert module.app.config["MAILER"].forgotten == ["keren@gmail.com"]
+    # everyone else is untouched, and the machine stays unless asked for
+    assert ("user", "dana@example.com") in entities
+    assert ("login", "email:dana@example.com") in entities
+    fake_compute.instances.return_value.delete.assert_not_called()
+    # the erased student's session is nobody's now
+    assert "machine-keren" not in keren.get("/").get_data(as_text=True)
+
+
+def test_erase_takes_the_students_own_machines_when_asked() -> None:
+    module, fake_compute = load_app(ADMIN)
+    set_mapping(module, {"keren@gmail.com": "keren"})
+    add_user(module, "google:keren", "keren@gmail.com")
+    admin = signed_in_client(module)
+    assert 'data-erase="keren@gmail.com" data-machines="machine-keren"' in admin.get("/").get_data(as_text=True)
+    response = admin.post("/admin/erase", data={"email": "keren@gmail.com", "machines": "yes"}, follow_redirects=True)
+    assert "Deleting machine-keren and everything on it" in response.get_data(as_text=True)
+    fake_compute.instances.return_value.delete.assert_called_once_with(
+        project="test-project", zone="us-central1-a", instance="machine-keren")
+    secrets_of(fake_compute).delete.assert_called_once_with(
+        name="projects/test-project/secrets/machine-key-machine-keren")
+    assert ("user", "keren@gmail.com") not in module.datastore_client.entities
+
+
+def test_erase_leaves_a_machine_someone_else_also_has() -> None:
+    module, fake_compute = load_app(ADMIN)
+    add_user(module, "google:keren", "keren@gmail.com", owner="raz")
+    add_user(module, "google:raz", "raz@gmail.com", owner="raz")
+    admin = signed_in_client(module)
+    assert 'data-erase="keren@gmail.com" data-machines=""' in admin.get("/").get_data(as_text=True)
+    admin.post("/admin/erase", data={"email": "keren@gmail.com", "machines": "yes"})
+    assert ("user", "keren@gmail.com") not in module.datastore_client.entities
+    fake_compute.instances.return_value.delete.assert_not_called()
+
+
+def test_only_admins_erase_and_never_themselves() -> None:
+    module, _fake_compute = load_app(ADMIN)
+    add_user(module, "email:dana@example.com", "dana@example.com")
+    student = signed_in_client(module, "keren@gmail.com")
+    assert student.post("/admin/erase", data={"email": "dana@example.com"}).status_code == 403
+    assert module.app.test_client().post("/admin/erase", data={"email": "dana@example.com"}).status_code == 302
+    assert ("user", "dana@example.com") in module.datastore_client.entities
+    admin = signed_in_client(module)
+    assert admin.post("/admin/erase", data={"email": "admin@gmail.com"}).status_code == 400
+    assert ("user", "admin@gmail.com") in module.datastore_client.entities
+    assert admin.post("/admin/erase", data={"email": "ghost@example.com"}).status_code == 404
+    body = admin.get("/").get_data(as_text=True)
+    assert 'data-erase="dana@example.com"' in body
+    assert 'data-erase="admin@gmail.com"' not in body
+    assert 'id="erase-dialog"' in body
+    assert 'id="erase-dialog"' not in student.get("/").get_data(as_text=True)
+
+
 # ─── machine keys ────────────────────────────────────────────────────────────
 
 def set_key(fake_compute: Mock, private_key: str):

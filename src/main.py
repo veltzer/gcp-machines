@@ -4,6 +4,7 @@
 main application
 """
 
+import collections
 import contextlib
 import datetime as dt
 import json
@@ -253,6 +254,11 @@ def students_table(machines: list[dict[str, Any]]):
         for email, owner in sorted(email_to_owner().items())
         if email not in signed_up
     ]
+    # the machines an erase may take along: those of an owner label nobody else has
+    holders = collections.Counter([row["owner"] for row in rows if row["owner"]] + [row["owner"] for row in pending])
+    for row in rows:
+        alone = row["owner"] is not None and holders[row["owner"]] == 1
+        row["machines"] = sorted(m["name"] for m in machines if alone and m["owner"] == row["owner"])
     for machine in machines:
         machine["students"] = sorted(
             {row["email"] for row in rows if row["owner"] == machine["owner"]}
@@ -541,6 +547,42 @@ def assign() -> Response:
     if not users.assign(datastore_client, email, owner, limit):
         flask.abort(404, "There is no such user.")
     return flask.redirect(flask.url_for("root", _anchor="students"))
+
+
+@app.route("/admin/erase", methods=["POST"])
+@auth.login_required
+def erase() -> Response:
+    """
+    Erase a user for good: the account, every way they sign in and any
+    verification link still out. With "machines" posted, also the machines
+    that are theirs alone (see students_table), disks and keys included.
+    Admins only, and never the admin's own account.
+    """
+    admin = auth.current_user()
+    if not is_admin(admin):
+        flask.abort(403, "Only an admin may erase a student.")
+    email = flask.request.form["email"]
+    if email == admin.email:
+        flask.abort(400, "You cannot erase your own account.")
+    machines = get_machines()
+    rows, _pending = students_table(machines)
+    row = next((row for row in rows if row["email"] == email), None)
+    if row is None:
+        flask.abort(404, "There is no such user.")
+    # the machines go first: should one fail, the student is still there to erase again
+    deleted = row["machines"] if flask.request.form.get("machines") else []
+    for machine in machines:
+        if machine["name"] in deleted:
+            compute.instances().delete(project=project_id, zone=machine["zone"], instance=machine["name"]).execute(http=api_http())
+            provision.delete_key(secret_manager, project_id, machine["name"], http=api_http())
+    users.erase(datastore_client, email)
+    auth.forget_mail(email)
+    message = f"Erased {email}: the account and every way it signed in."
+    if deleted:
+        message += f" Deleting {', '.join(deleted)} and everything on {'it' if len(deleted) == 1 else 'them'}."
+    if email in email_to_owner():
+        message += " The roster still lists the address, so it can sign up again."
+    return done(message)
 
 
 @app.route("/account/name", methods=["POST"])

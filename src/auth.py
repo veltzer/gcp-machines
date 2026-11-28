@@ -111,6 +111,14 @@ def mailer():
     return flask.current_app.config["MAILER"]
 
 
+def forget_mail(email: str) -> None:
+    """ drop what the mailer keeps for an address; a failure is logged, it is only cleaning up """
+    try:
+        mailer().forget(email)
+    except (VerificationError, requests.RequestException, ValueError) as error:
+        logger.warning("could not clean up the verification mail of %s: %s", email, error)
+
+
 def dev_login_enabled():
     return flask.current_app.config["DEV_LOGIN"]
 
@@ -247,10 +255,7 @@ def email_password() -> Response:
         datastore_client(), f"email:{email}", email, email.split("@")[0], "", verified=True,
         password_hash=generate_password_hash(password),
     )
-    try:
-        mailer().forget(email)
-    except (VerificationError, requests.RequestException, ValueError) as error:
-        logger.warning("could not clean up after verifying %s: %s", email, error)
+    forget_mail(email)
     start_session(account)
     return flask.jsonify({"next": flask.url_for("root")})
 

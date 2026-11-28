@@ -314,6 +314,34 @@ function confirmDeletes() {
 	}
 }
 
+// An Erase button of the admin's Students table (data-erase holds the
+// student's email, data-machines the machines that are theirs alone) opens
+// the erase dialog, whose form does the erasing. The machines go along only
+// when the admin ticks the box, which is offered only when there are any.
+function confirmErases() {
+	const dialog = $("erase-dialog");
+	if (!dialog) {
+		return;
+	}
+	for (const button of document.querySelectorAll("button[data-erase]")) {
+		button.onclick = () => {
+			$("erase-email").value = button.dataset.erase;
+			$("erase-name").textContent = button.dataset.erase;
+			$("erase-machines").checked = false;
+			$("erase-machines-row").hidden = !button.dataset.machines;
+			$("erase-machines-names").textContent = button.dataset.machines;
+			dialog.showModal();
+			$("erase-cancel").focus();
+		};
+	}
+	$("erase-cancel").onclick = () => dialog.close();
+	dialog.onclick = (event) => {
+		if (event.target === dialog) {
+			dialog.close();
+		}
+	};
+}
+
 // The Settings button in the top bar opens the settings dialog with the
 // name field ready to edit; Cancel, Escape and the backdrop close it
 // unsaved (the field goes back to the saved name), Save posts the form.
@@ -369,6 +397,7 @@ function machinesPage() {
 	fillAssignments();
 	localizeTimes();
 	confirmDeletes();
+	confirmErases();
 	for (const button of document.querySelectorAll("button[data-copy]")) {
 		button.onclick = async () => {
 			await navigator.clipboard.writeText(button.dataset.copy);

@@ -237,7 +237,7 @@
 									<span class="source">none</span>
 								{% endif %}
 							</span>
-							<div role="cell">
+							<div role="cell" class="student-actions">
 								<form method="post" action="/admin/assign" class="assign">
 									<input type="hidden" name="email" value="{{row.email}}">
 									<select name="owner" aria-label="Machine for {{row.email}}" data-selected="{{row.assigned}}">
@@ -249,6 +249,10 @@
 									</label>
 									<button type="submit" class="quiet">Save</button>
 								</form>
+								{# no erasing yourself; app.js asks in the erase dialog first #}
+								{% if row.email != user.email %}
+									<button type="button" class="quiet danger" data-erase="{{row.email}}" data-machines="{{row.machines|join(', ')}}" title="Remove this student's account for good">Erase</button>
+								{% endif %}
 							</div>
 						</div>
 					{% endfor %}
@@ -278,6 +282,29 @@
 					</div>
 				</form>
 			</dialog>
+			{% if admin %}
+				{# an Erase button of the Students table opens this; app.js fills in the student, Erase posts the form #}
+				<dialog id="erase-dialog" class="dialog" aria-labelledby="erase-title" aria-describedby="erase-text">
+					<form method="post" action="/admin/erase">
+						<input id="erase-email" type="hidden" name="email" value="">
+						<h2 id="erase-title">Erase <span id="erase-name">this student</span>?</h2>
+						<p id="erase-text">
+							This removes the account for good: the name, the machine
+							assignment and limit, and every way the student signs in,
+							a password included. Signing in again later starts a new,
+							empty account.
+						</p>
+						<label id="erase-machines-row" class="check" hidden>
+							<input id="erase-machines" type="checkbox" name="machines" value="yes">
+							<span>Also delete <strong id="erase-machines-names">the machines</strong> and every file on them, for good</span>
+						</label>
+						<div class="dialog-actions">
+							<button type="button" class="quiet" id="erase-cancel">Cancel</button>
+							<button type="submit" class="danger">Erase student</button>
+						</div>
+					</form>
+				</dialog>
+			{% endif %}
 			{# asked before any Delete goes out; app.js fills in the machine and submits its form #}
 			<dialog id="delete-dialog" class="dialog" aria-labelledby="delete-title" aria-describedby="delete-text">
 				<div>

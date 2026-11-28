@@ -86,6 +86,16 @@ Which machines a user sees:
   Students table's Save posts the user's email), and an address that has
   not proven itself is not on the table at all.
 
+An admin erases a user with the Erase button of its row on the Students
+table (`POST /admin/erase`): the `user` entity, every `login` that joined
+it and any verification link still out are deleted, and the person's
+session with them. The dialog offers to delete the user's machines too,
+when their owner label is nobody else's; otherwise the machines stay. An
+admin cannot erase their own account. The roster is not touched: an
+address `data.gi/students.txt` lists shows up again as not signed up and
+may sign up anew, so take it out of the file and run `scripts/iap.py sync`
+to remove it for good.
+
 `scripts/migrate_logins.py` moved the accounts of before (one `user`
 entity per way of signing in) to this layout on 2026-11-15, and
 `scripts/migrate_verified_only.py` removes the logins that were never

@@ -826,10 +826,10 @@ button:disabled {
 
 .student {
 	display: grid;
-	grid-template-columns: minmax(12rem, 2fr) minmax(6rem, 1fr) minmax(8rem, 1fr) minmax(19rem, 1.5fr);
+	grid-template-columns: minmax(12rem, 2fr) minmax(6rem, 1fr) minmax(8rem, 1fr) minmax(23rem, 1.5fr);
 	align-items: center;
 	gap: 0.5rem 1rem;
-	min-width: 49rem;
+	min-width: 53rem;
 	padding: 0.6rem 0.9rem;
 	border-bottom: 1px solid var(--line);
 }
@@ -859,6 +859,13 @@ button:disabled {
 	gap: 0.4rem;
 	align-items: center;
 	margin: 0;
+}
+
+/* the assign form and the Erase button, side by side */
+.student-actions {
+	display: flex;
+	gap: 0.4rem;
+	align-items: center;
 }
 
 .assign select {
@@ -950,6 +957,17 @@ button:disabled {
 .dialog .settings-hint {
 	margin: 0.5rem 0 0;
 	font-size: 0.85rem;
+}
+
+/* the erase dialog's "also delete the machines" box: a checkbox beside its text */
+.dialog .check:not([hidden]) {
+	display: flex;
+	gap: 0.5rem;
+	align-items: baseline;
+}
+
+.dialog .check input {
+	width: auto;
 }
 
 button.danger:not(.quiet) {
